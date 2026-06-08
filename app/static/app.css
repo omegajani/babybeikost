@@ -34,8 +34,20 @@ h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 600; letter-s
 }
 
 /* ---- Topbar ---- */
-.topbar { padding: 22px 20px 8px; }
+.topbar { padding: 22px 20px 8px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .brand { display: flex; align-items: center; gap: 12px; }
+
+/* ---- Language toggle (segmented) ---- */
+.lang-toggle {
+  display: inline-flex; background: var(--card); border: 1px solid var(--line);
+  border-radius: 999px; padding: 3px; box-shadow: var(--shadow); flex: 0 0 auto;
+}
+.lang-toggle button {
+  border: none; background: transparent; cursor: pointer; font-family: inherit;
+  font-weight: 800; font-size: 12px; color: var(--muted); letter-spacing: .03em;
+  padding: 6px 12px; border-radius: 999px; transition: background .15s, color .15s;
+}
+.lang-toggle button.active { background: var(--accent); color: #fff; }
 .brand-mark {
   font-size: 30px; width: 52px; height: 52px;
   display: grid; place-items: center;
@@ -81,9 +93,13 @@ main { padding: 8px 16px 0; }
 }
 .recipe-card:hover { transform: translateY(-2px); box-shadow: 0 12px 26px -12px rgba(80,60,40,.4); }
 .recipe-card h3 { font-size: 17px; margin-bottom: 6px; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .badge {
   display: inline-block; font-size: 11px; font-weight: 700; color: var(--sage);
-  background: var(--sage-bg); padding: 3px 9px; border-radius: 999px; margin-bottom: 8px;
+  background: var(--sage-bg); padding: 3px 9px; border-radius: 999px;
+}
+.badge.fg {
+  color: #fff; background: var(--fg, var(--sage));
 }
 .recipe-card .meta { color: var(--muted); font-size: 13px; }
 
@@ -191,6 +207,81 @@ input:focus, select:focus { outline: 2px solid #f1c4b2; border-color: var(--acce
 .ing-row-wrap { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--line);
   background: var(--card); border-radius: var(--radius-sm); padding: 9px; }
 .ing-row-top { display: grid; grid-template-columns: 1fr 56px 60px 32px; gap: 6px; align-items: center; }
+
+/* ---- Plan: toolbar ---- */
+.plan-toolbar { display: flex; gap: 8px; align-items: center; margin: 0 4px 12px; }
+.week-select { flex: 1 1 auto; max-width: 220px; }
+
+/* ---- Plan: frequency bar ---- */
+.freq-bar {
+  display: flex; flex-wrap: wrap; gap: 6px; margin: 0 4px 14px;
+}
+.freq-item {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 999px;
+  padding: 5px 11px 5px 8px; font-size: 12px; font-weight: 700; color: var(--ink);
+}
+.freq-item .freq-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--fg); flex: 0 0 auto; }
+.freq-item .freq-label { color: var(--muted); }
+.freq-item .freq-count { font-weight: 800; }
+.freq-item.over { border-color: #e2a59a; background: #fdeee9; }
+.freq-item.over .freq-count { color: #c0492f; }
+.freq-item.ok .freq-count { color: var(--sage); }
+.freq-item.under .freq-count { color: var(--muted); }
+
+/* ---- Plan: weekly grid ---- */
+.plan-grid-wrap {
+  overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--card); box-shadow: var(--shadow); -webkit-overflow-scrolling: touch;
+}
+.plan-grid { display: grid; min-width: max-content; }
+.plan-grid > div { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.plan-grid > div:nth-child(8n) { border-right: none; } /* last column per row (corner+7) */
+
+.grid-corner { position: sticky; left: 0; z-index: 3; background: var(--bg-2); }
+.grid-dayhead {
+  position: sticky; top: 0; z-index: 2; background: var(--bg-2);
+  padding: 9px 6px; text-align: center; font-family: "Fraunces", serif;
+  font-weight: 600; font-size: 13px; color: var(--accent-ink);
+}
+.grid-meallabel {
+  position: sticky; left: 0; z-index: 2; background: var(--sage-bg);
+  display: flex; align-items: center; padding: 8px 10px;
+  font-size: 12px; font-weight: 800; color: #5f7a51; text-transform: uppercase;
+  letter-spacing: .03em; line-height: 1.15;
+}
+.grid-meallabel.note { background: #f6efe2; color: #9a8757; }
+.grid-cell {
+  min-height: 64px; padding: 6px; display: flex; flex-direction: column; gap: 5px;
+  background: var(--card);
+}
+.grid-cell.note-cell { min-height: 0; padding: 5px; }
+
+.dish-chip {
+  display: flex; align-items: center; gap: 6px;
+  background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--fg, var(--line));
+  border-radius: 9px; padding: 5px 6px 5px 7px; font-size: 12px; line-height: 1.2;
+}
+.dish-chip .fg-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg); flex: 0 0 auto; }
+.dish-chip .chip-name { flex: 1; font-weight: 600; word-break: break-word; }
+.dish-chip .chip-x {
+  border: none; background: transparent; color: var(--muted); cursor: pointer;
+  font-size: 11px; padding: 2px; flex: 0 0 auto; border-radius: 5px; line-height: 1;
+}
+.dish-chip .chip-x:hover { background: #f4ece0; color: var(--ink); }
+.cell-add {
+  border: 1px dashed var(--line); background: transparent; color: var(--muted);
+  border-radius: 8px; padding: 4px; cursor: pointer; font-size: 15px; font-weight: 700;
+  margin-top: auto;
+}
+.cell-add:hover { border-color: var(--accent); color: var(--accent); background: #fff7f1; }
+.note-input {
+  font-size: 12px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: #fff;
+}
+
+/* compact picker modal */
+.modal.compact { max-width: 420px; }
+.ing-name-de { font-size: 13px; padding: 7px 9px; }
 
 /* ---- Toast ---- */
 .toast {

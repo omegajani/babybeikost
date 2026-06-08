@@ -15,6 +15,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import atlas
+
 DB_PATH = os.environ.get("DB_PATH", str(Path(__file__).parent / "beikost.db"))
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -28,6 +30,35 @@ AISLES = [
     "Sonstiges",
 ]
 
+# Meal slots of the weekly grid (mirrors the "Pianificazione settimanale" page).
+# Each carries an Italian (default) and German label.
+MEALS = [
+    {"key": "colazione", "it": "Colazione", "de": "Frühstück"},
+    {"key": "pranzo", "it": "Pranzo", "de": "Mittag"},
+    {"key": "cena", "it": "Cena", "de": "Abendessen"},
+    {"key": "merenda", "it": "Merenda e spuntini", "de": "Snack & Zwischen"},
+]
+
+# Weekdays as stable keys, with full + short labels per language.
+DAYS = [
+    {"key": "mon", "it": "Lunedì", "de": "Montag", "short_it": "Lun", "short_de": "Mo"},
+    {"key": "tue", "it": "Martedì", "de": "Dienstag", "short_it": "Mar", "short_de": "Di"},
+    {"key": "wed", "it": "Mercoledì", "de": "Mittwoch", "short_it": "Mer", "short_de": "Mi"},
+    {"key": "thu", "it": "Giovedì", "de": "Donnerstag", "short_it": "Gio", "short_de": "Do"},
+    {"key": "fri", "it": "Venerdì", "de": "Freitag", "short_it": "Ven", "short_de": "Fr"},
+    {"key": "sat", "it": "Sabato", "de": "Samstag", "short_it": "Sab", "short_de": "Sa"},
+    {"key": "sun", "it": "Domenica", "de": "Sonntag", "short_it": "Dom", "short_de": "So"},
+]
+
+# Food groups with weekly frequency targets (from the atlas reference panel).
+FOOD_GROUPS = [
+    {"key": "carne", "it": "Carne", "de": "Fleisch", "color": "#e8746b", "min": 0, "max": 3},
+    {"key": "pesce", "it": "Pesce", "de": "Fisch", "color": "#56b6c2", "min": 3, "max": 4},
+    {"key": "uova", "it": "Uova", "de": "Eier", "color": "#f2b84b", "min": 1, "max": 2},
+    {"key": "legumi", "it": "Legumi", "de": "Hülsenfrüchte", "color": "#7fae5a", "min": 4, "max": 5},
+    {"key": "formaggi", "it": "Formaggi", "de": "Käse", "color": "#9b8bd6", "min": 0, "max": 2},
+]
+
 app = FastAPI(title="Beikost Planner")
 
 
@@ -39,6 +70,13 @@ def connect() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+def _ensure_column(conn, table: str, col: str, decl: str) -> None:
+    """Add a column if it does not exist yet (idempotent, additive migration)."""
+    cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if col not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
 
 
 def init_db() -> None:
@@ -78,8 +116,22 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS checks (
                 item_key TEXT PRIMARY KEY
             );
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            );
+            CREATE TABLE IF NOT EXISTS day_notes (
+                day TEXT PRIMARY KEY,
+                text TEXT DEFAULT ''
+            );
             """
         )
+        # Additive migrations for the bilingual / grid features.
+        _ensure_column(conn, "recipes", "name_de", "TEXT DEFAULT ''")
+        _ensure_column(conn, "recipes", "notes_de", "TEXT DEFAULT ''")
+        _ensure_column(conn, "recipes", "food_group", "TEXT DEFAULT ''")
+        _ensure_column(conn, "ingredients", "name_de", "TEXT DEFAULT ''")
+        _ensure_column(conn, "plan", "meal", "TEXT DEFAULT ''")
     seed_if_empty()
 
 
@@ -142,6 +194,7 @@ def seed_if_empty() -> None:
 # --------------------------------------------------------------------------
 class IngredientIn(BaseModel):
     name: str
+    name_de: str = ""
     amount: Optional[float] = None
     unit: str = ""
     aisle: str = "Sonstiges"
@@ -149,9 +202,12 @@ class IngredientIn(BaseModel):
 
 class RecipeIn(BaseModel):
     name: str
+    name_de: str = ""
     category: str = ""
     servings: float = 1
     notes: str = ""
+    notes_de: str = ""
+    food_group: str = ""
     ingredients: list[IngredientIn] = []
 
 
@@ -159,6 +215,22 @@ class PlanIn(BaseModel):
     recipe_id: int
     portions: float = 1
     day: str = ""
+    meal: str = ""
+
+
+class SettingIn(BaseModel):
+    key: str
+    value: str
+
+
+class DayNoteIn(BaseModel):
+    day: str
+    text: str = ""
+
+
+class ExampleWeekIn(BaseModel):
+    week: int = 1
+    clear: bool = True
 
 
 class ManualItemIn(BaseModel):
@@ -178,16 +250,19 @@ class ToggleIn(BaseModel):
 # --------------------------------------------------------------------------
 def recipe_to_dict(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
     ings = conn.execute(
-        "SELECT name, amount, unit, aisle FROM ingredients "
+        "SELECT name, name_de, amount, unit, aisle FROM ingredients "
         "WHERE recipe_id=? ORDER BY position, id",
         (row["id"],),
     ).fetchall()
     return {
         "id": row["id"],
         "name": row["name"],
+        "name_de": row["name_de"] or "",
         "category": row["category"],
         "servings": row["servings"],
         "notes": row["notes"],
+        "notes_de": row["notes_de"] or "",
+        "food_group": row["food_group"] or "",
         "ingredients": [dict(i) for i in ings],
     }
 
@@ -212,8 +287,10 @@ def create_recipe(data: RecipeIn):
         raise HTTPException(400, "Name fehlt")
     with closing(connect()) as conn, conn:
         cur = conn.execute(
-            "INSERT INTO recipes (name, category, servings, notes) VALUES (?,?,?,?)",
-            (data.name.strip(), data.category, max(data.servings, 0.1), data.notes),
+            "INSERT INTO recipes (name, name_de, category, servings, notes, notes_de, food_group) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (data.name.strip(), data.name_de.strip(), data.category, max(data.servings, 0.1),
+             data.notes, data.notes_de, data.food_group),
         )
         rid = cur.lastrowid
         _save_ingredients(conn, rid, data.ingredients)
@@ -227,8 +304,10 @@ def update_recipe(rid: int, data: RecipeIn):
         if not exists:
             raise HTTPException(404, "Rezept nicht gefunden")
         conn.execute(
-            "UPDATE recipes SET name=?, category=?, servings=?, notes=? WHERE id=?",
-            (data.name.strip(), data.category, max(data.servings, 0.1), data.notes, rid),
+            "UPDATE recipes SET name=?, name_de=?, category=?, servings=?, notes=?, "
+            "notes_de=?, food_group=? WHERE id=?",
+            (data.name.strip(), data.name_de.strip(), data.category, max(data.servings, 0.1),
+             data.notes, data.notes_de, data.food_group, rid),
         )
         conn.execute("DELETE FROM ingredients WHERE recipe_id=?", (rid,))
         _save_ingredients(conn, rid, data.ingredients)
@@ -247,9 +326,10 @@ def _save_ingredients(conn, rid, ingredients):
         if not ing.name.strip():
             continue
         conn.execute(
-            "INSERT INTO ingredients (recipe_id, name, amount, unit, aisle, position) "
-            "VALUES (?,?,?,?,?,?)",
-            (rid, ing.name.strip(), ing.amount, ing.unit, ing.aisle or "Sonstiges", pos),
+            "INSERT INTO ingredients (recipe_id, name, name_de, amount, unit, aisle, position) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (rid, ing.name.strip(), (ing.name_de or "").strip(), ing.amount, ing.unit,
+             ing.aisle or "Sonstiges", pos),
         )
 
 
@@ -260,7 +340,8 @@ def _save_ingredients(conn, rid, ingredients):
 def get_plan():
     with closing(connect()) as conn:
         rows = conn.execute(
-            "SELECT p.id, p.recipe_id, p.portions, p.day, r.name, r.category, r.servings "
+            "SELECT p.id, p.recipe_id, p.portions, p.day, p.meal, "
+            "r.name, r.name_de, r.category, r.servings, r.food_group "
             "FROM plan p JOIN recipes r ON r.id = p.recipe_id ORDER BY p.id"
         ).fetchall()
         return [dict(r) for r in rows]
@@ -273,8 +354,8 @@ def add_plan(data: PlanIn):
         if not r:
             raise HTTPException(404, "Rezept nicht gefunden")
         conn.execute(
-            "INSERT INTO plan (recipe_id, portions, day) VALUES (?,?,?)",
-            (data.recipe_id, max(data.portions, 0.1), data.day),
+            "INSERT INTO plan (recipe_id, portions, day, meal) VALUES (?,?,?,?)",
+            (data.recipe_id, max(data.portions, 0.1), data.day, data.meal),
         )
     return {"ok": True}
 
@@ -330,13 +411,16 @@ def shopping_list():
         # key -> aggregated entry
         agg: dict[str, dict] = {}
 
-        def add(name, amount, unit, aisle, manual=False, manual_id=None):
+        def add(name, amount, unit, aisle, name_de="", manual=False, manual_id=None):
+            # Key stays on the canonical (Italian) name so totals + checks remain
+            # stable when the user toggles the display language.
             key = item_key(name, unit)
             entry = agg.get(key)
             if entry is None:
                 entry = {
                     "key": key,
                     "name": name,
+                    "name_de": name_de or "",
                     "amount": None,
                     "unit": unit or "",
                     "aisle": aisle or "Sonstiges",
@@ -346,6 +430,8 @@ def shopping_list():
                 agg[key] = entry
             if amount is not None:
                 entry["amount"] = (entry["amount"] or 0) + amount
+            if name_de and not entry.get("name_de"):
+                entry["name_de"] = name_de
             if manual:
                 entry["manual"] = True
                 entry["manual_id"] = manual_id
@@ -353,12 +439,12 @@ def shopping_list():
         for pl in plan:
             factor = (pl["portions"] or 1) / (pl["servings"] or 1)
             ings = conn.execute(
-                "SELECT name, amount, unit, aisle FROM ingredients WHERE recipe_id=?",
+                "SELECT name, name_de, amount, unit, aisle FROM ingredients WHERE recipe_id=?",
                 (pl["recipe_id"],),
             ).fetchall()
             for ing in ings:
                 scaled = ing["amount"] * factor if ing["amount"] is not None else None
-                add(ing["name"], scaled, ing["unit"], ing["aisle"])
+                add(ing["name"], scaled, ing["unit"], ing["aisle"], name_de=ing["name_de"])
 
         for mi in conn.execute("SELECT * FROM manual_items").fetchall():
             add(mi["name"], mi["amount"], mi["unit"], mi["aisle"], manual=True, manual_id=mi["id"])
@@ -399,7 +485,120 @@ def clear_checks():
 
 @app.get("/api/meta")
 def meta():
-    return {"aisles": AISLES}
+    with closing(connect()) as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key='content_lang'").fetchone()
+    lang = row["value"] if row else "it"
+    return {
+        "aisles": AISLES,
+        "meals": MEALS,
+        "days": DAYS,
+        "food_groups": FOOD_GROUPS,
+        "content_lang": lang,
+    }
+
+
+# --------------------------------------------------------------------------
+# Settings
+# --------------------------------------------------------------------------
+@app.get("/api/settings")
+def get_settings():
+    with closing(connect()) as conn:
+        rows = conn.execute("SELECT key, value FROM settings").fetchall()
+    out = {r["key"]: r["value"] for r in rows}
+    out.setdefault("content_lang", "it")
+    return out
+
+
+@app.post("/api/settings")
+def set_setting(data: SettingIn):
+    with closing(connect()) as conn, conn:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (data.key, data.value),
+        )
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------
+# Day notes ("ricorda di…" row of the planner)
+# --------------------------------------------------------------------------
+@app.get("/api/day-notes")
+def get_day_notes():
+    with closing(connect()) as conn:
+        rows = conn.execute("SELECT day, text FROM day_notes").fetchall()
+    return {r["day"]: r["text"] for r in rows}
+
+
+@app.post("/api/day-notes")
+def set_day_note(data: DayNoteIn):
+    with closing(connect()) as conn, conn:
+        if data.text.strip():
+            conn.execute(
+                "INSERT INTO day_notes (day, text) VALUES (?,?) "
+                "ON CONFLICT(day) DO UPDATE SET text=excluded.text",
+                (data.day, data.text.strip()),
+            )
+        else:
+            conn.execute("DELETE FROM day_notes WHERE day=?", (data.day,))
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------
+# Atlas import + example weeks
+# --------------------------------------------------------------------------
+def _import_atlas(conn) -> int:
+    """Insert atlas recipes that are not present yet (matched by canonical name)."""
+    existing = {r["name"] for r in conn.execute("SELECT name FROM recipes").fetchall()}
+    added = 0
+    for rec in atlas.RECIPES.values():
+        if rec["name"] in existing:
+            continue
+        cur = conn.execute(
+            "INSERT INTO recipes (name, name_de, category, servings, notes, notes_de, food_group) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (rec["name"], rec["name_de"], "", 1, rec["notes"], rec["notes_de"], rec["food_group"]),
+        )
+        rid = cur.lastrowid
+        for pos, ing in enumerate(rec["ingredients"]):
+            conn.execute(
+                "INSERT INTO ingredients (recipe_id, name, name_de, amount, unit, aisle, position) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (rid, ing["name"], ing["name_de"], None, "", ing["aisle"], pos),
+            )
+        existing.add(rec["name"])
+        added += 1
+    return added
+
+
+@app.post("/api/import-atlas")
+def import_atlas():
+    with closing(connect()) as conn, conn:
+        added = _import_atlas(conn)
+    return {"ok": True, "added": added}
+
+
+@app.post("/api/load-example-week")
+def load_example_week(data: ExampleWeekIn):
+    if data.week not in atlas.WEEKS:
+        raise HTTPException(400, "Unbekannte Woche")
+    with closing(connect()) as conn, conn:
+        _import_atlas(conn)
+        name_to_id = {r["name"]: r["id"] for r in conn.execute("SELECT id, name FROM recipes").fetchall()}
+        if data.clear:
+            conn.execute("DELETE FROM plan")
+        added = 0
+        for slug, day, meal in atlas.week_plan_rows(data.week):
+            name = atlas.RECIPES[slug]["name"]
+            rid = name_to_id.get(name)
+            if rid is None:
+                continue
+            conn.execute(
+                "INSERT INTO plan (recipe_id, portions, day, meal) VALUES (?,?,?,?)",
+                (rid, 1, day, meal),
+            )
+            added += 1
+    return {"ok": True, "added": added}
 
 
 # --------------------------------------------------------------------------

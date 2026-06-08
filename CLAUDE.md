@@ -7,9 +7,18 @@ Selbst gehostetes Tool für die Beikost-Phase eines Babys: Rezepte verwalten →
 Wochenplan zusammenstellen → automatische, aggregierte Einkaufsliste. Läuft als
 **lokales Home-Assistant-Add-on** (Ingress-Panel in der Seitenleiste).
 
-**Status:** v0.1 funktionsfähig und manuell getestet (Aggregation, Skalierung,
-Abhaken, manuelle Einträge, Rezept-CRUD, Auslieferung der Seite). Bring-Anbindung
-ist noch NICHT gebaut – die Liste wird per „Kopieren" als Text exportiert.
+**Status:** v0.2. Zusätzlich zu v0.1 (Aggregation, Skalierung, Abhaken, manuelle
+Einträge, Rezept-CRUD): **Wochenplan als 7-Tage-Raster** im Stil der „Pianificazione
+settimanale" (Tage × Mahlzeit-Slots Frühstück/Mittag/Abend/Snack + „Daran denken"-Zeile),
+**Häufigkeits-Leiste** (Fleisch/Fisch/Eier/Hülsenfrüchte/Käse, live gezählt), **zweisprachige
+Inhalte** (IT Standard / DE umschaltbar) und **Atlas-Menü-Import** (Rezepte + ladbare
+Beispielwochen aus *L'atlante dello svezzamento*, S. 232). Bring-Anbindung weiterhin NICHT
+gebaut – die Liste wird per „Kopieren" als Text exportiert.
+
+Auf dem Gerät läuft es als lokales Add-on `local_beikost_planner` (HA OS, SSH-Alias
+`homeassistant` → 192.168.2.49). **Wichtig:** Lokale Add-ons laufen aus einem gebauten
+Docker-Image; nach Datei-Änderungen in `/addons/beikost_planner/` muss
+`ha addons rebuild local_beikost_planner` laufen – ein bloßer `restart` nutzt das alte Image.
 
 ## Stack
 - Backend: **FastAPI + SQLite** (eine Datei), Python 3.12, Server via `uvicorn`.
@@ -56,20 +65,33 @@ Seed-Rezepte werden nur angelegt, wenn die `recipes`-Tabelle leer ist.
 5. SQLite mit `PRAGMA foreign_keys = ON`; Zutaten hängen per `ON DELETE CASCADE` am Rezept.
 
 ## Datenmodell (SQLite)
-- `recipes(id, name, category, servings, notes)`
-- `ingredients(id, recipe_id→recipes, name, amount, unit, aisle, position)`
-- `plan(id, recipe_id→recipes, portions, day)`
+- `recipes(id, name, name_de, category, servings, notes, notes_de, food_group)`
+  – `name`/`notes` sind kanonisch (IT bei Atlas-Importen); `name_de`/`notes_de` optional für DE.
+  `food_group` ∈ {carne, pesce, uova, legumi, formaggi, ''} (für die Häufigkeits-Leiste).
+- `ingredients(id, recipe_id→recipes, name, name_de, amount, unit, aisle, position)`
+- `plan(id, recipe_id→recipes, portions, day, meal)` – `day` = `mon..sun`, `meal` = Mahlzeit-Slug.
 - `manual_items(id, name, amount, unit, aisle)`
-- `checks(item_key)` – abgehakte Einkaufslisten-Posten; `item_key = "<name>|<unit>"` (lowercase)
+- `checks(item_key)` – abgehakte Posten; `item_key = "<name>|<unit>"` (lowercase, **kanonischer
+  Name** → stabil über Sprachwechsel).
+- `settings(key, value)` – u.a. `content_lang` (`it`/`de`).
+- `day_notes(day, text)` – die „Daran denken…"-Zeile pro Wochentag.
+
+Zweisprachigkeit/Konstanten leben in `main.py` (`MEALS`, `DAYS`, `FOOD_GROUPS`, via `GET /api/meta`).
+Die Atlas-Menüdaten (Rezepte + Wochen) stehen in `app/atlas.py`. **Stolperfalle:** Der
+Aggregations-Key der Einkaufsliste MUSS auf dem kanonischen `name` bleiben, sonst brechen
+Summen/Häkchen beim Sprachwechsel. Importierte Rezepte tragen **keine Mengen** (nur im Buch).
 
 ## API (alles unter `/api`)
 - `GET/POST recipes`, `PUT/DELETE recipes/{id}`
 - `GET/POST plan`, `DELETE plan/{id}`, `POST plan/clear`
 - `POST manual-items`, `DELETE manual-items/{id}`
 - `GET shopping-list` (aggregiert Plan+manuell, gruppiert nach Aisle, skaliert per
-  `portions/servings`, summiert gleiche `item_key`), `POST shopping-list/toggle`,
-  `POST shopping-list/clear-checks`
-- `GET meta` (Aisle-Liste)
+  `portions/servings`, summiert gleiche `item_key`; Einträge tragen `name`+`name_de`),
+  `POST shopping-list/toggle`, `POST shopping-list/clear-checks`
+- `GET meta` (Aisles, `meals`, `days`, `food_groups` inkl. Richtwerte, `content_lang`)
+- `GET/POST settings` (`{key,value}`), `GET/POST day-notes` (`{day,text}`)
+- `POST import-atlas` (idempotent, legt fehlende Atlas-Rezepte an),
+  `POST load-example-week` (`{week, clear}` – füllt den Plan mit einer Atlas-Woche)
 
 ## Roadmap / nächste Aufgaben (Priorität oben)
 
@@ -106,9 +128,11 @@ Zutatennamen aus Rezepten.
 Eiswürfel-/TK-Bestand pro Brei-Sorte, Warnung bei Unterschreiten einer Schwelle.
 
 ### 4. Kleinere Politur
-- Wochenplan als echte 7-Tage-Ansicht (statt flacher Liste) gruppiert nach Tag.
+- ~~Wochenplan als echte 7-Tage-Ansicht~~ ✅ erledigt (Raster mit Mahlzeit-Slots, v0.2).
 - Mengen-Edit direkt in der Einkaufsliste.
 - Export der Liste auch als geteilter Text/Share-Sheet.
+- Beispielwochen-Frühstücke/Snacks sind nach Saison (Woche 1 = Frühling/Sommer, Woche 2 =
+  Herbst/Winter) rotierend verteilt – ggf. saisonale Auswahl verfeinern.
 
 ## Hinweise
 - Wenn der Nutzer HA als **Container/Core** (kein OS/Supervised) fährt, sind Add-ons

@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 *.pyo
+.venv/
 
 # SQLite-Datenbank (Laufzeitdaten, nicht versionieren)
 *.db
@@ -12,3 +13,6 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# Referenz-/Vorlagenmaterial (nicht versionieren)
+*.pdf

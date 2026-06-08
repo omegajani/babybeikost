@@ -19,6 +19,10 @@
           <p class="tagline">Rezepte · Wochenplan · Einkauf</p>
         </div>
       </div>
+      <div class="lang-toggle" id="lang-toggle" title="Sprache der Gericht-Namen">
+        <button type="button" data-lang="it">IT</button>
+        <button type="button" data-lang="de">DE</button>
+      </div>
     </header>
 
     <main>
@@ -38,28 +42,44 @@
           <h2>Wochenplan</h2>
           <button class="btn ghost" id="btn-clear-plan">Plan leeren</button>
         </div>
-        <div class="panel add-plan">
-          <div class="field grow">
-            <label>Rezept</label>
-            <select id="plan-recipe"></select>
-          </div>
-          <div class="field small">
-            <label>Tag</label>
-            <select id="plan-day">
-              <option value="">–</option>
-              <option>Mo</option><option>Di</option><option>Mi</option>
-              <option>Do</option><option>Fr</option><option>Sa</option><option>So</option>
-            </select>
-          </div>
-          <div class="field small">
-            <label>Portionen</label>
-            <input type="number" id="plan-portions" value="1" min="0.5" step="0.5" />
-          </div>
-          <button class="btn primary" id="btn-add-plan">Hinzufügen</button>
+        <div class="plan-toolbar">
+          <select id="atlas-week" class="week-select">
+            <option value="1">Atlas-Woche 1</option>
+            <option value="2">Atlas-Woche 2</option>
+          </select>
+          <button class="btn ghost" id="btn-load-week">Laden</button>
         </div>
-        <div id="plan-list" class="stack"></div>
+        <div id="freq-bar" class="freq-bar"></div>
+        <div class="plan-grid-wrap">
+          <div id="plan-grid" class="plan-grid"></div>
+        </div>
         <button class="btn primary wide" id="btn-make-list">Einkaufsliste erstellen →</button>
       </section>
+
+      <!-- Cell picker popover (add a dish to a day/meal) -->
+      <div id="cell-picker" class="modal-backdrop">
+        <div class="modal compact">
+          <div class="modal-head">
+            <h3 id="cell-picker-title">Gericht hinzufügen</h3>
+            <button class="icon-btn" id="cell-picker-close">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="field">
+              <label>Rezept</label>
+              <select id="cell-recipe"></select>
+            </div>
+            <div class="field small">
+              <label>Portionen</label>
+              <input type="number" id="cell-portions" value="1" min="0.5" step="0.5" />
+            </div>
+          </div>
+          <div class="modal-foot">
+            <div class="spacer"></div>
+            <button class="btn ghost" id="cell-picker-cancel">Abbrechen</button>
+            <button class="btn primary" id="cell-picker-add">Hinzufügen</button>
+          </div>
+        </div>
+      </div>
 
       <!-- SHOPPING -->
       <section id="view-shopping" class="view">
@@ -109,8 +129,12 @@
       </div>
       <div class="modal-body">
         <div class="field">
-          <label>Name</label>
-          <input type="text" id="r-name" placeholder="z. B. Kürbis-Hirse-Brei" />
+          <label>Name (Italienisch)</label>
+          <input type="text" id="r-name" placeholder="z. B. Crema di zucca" />
+        </div>
+        <div class="field">
+          <label>Name (Deutsch, optional)</label>
+          <input type="text" id="r-name-de" placeholder="z. B. Kürbiscreme" />
         </div>
         <div class="row">
           <div class="field grow">
@@ -126,8 +150,16 @@
           </div>
         </div>
         <div class="field">
-          <label>Notizen</label>
+          <label>Lebensmittelgruppe</label>
+          <select id="r-food-group"></select>
+        </div>
+        <div class="field">
+          <label>Notizen (Italienisch)</label>
           <input type="text" id="r-notes" placeholder="optional" />
+        </div>
+        <div class="field">
+          <label>Notizen (Deutsch, optional)</label>
+          <input type="text" id="r-notes-de" placeholder="optional" />
         </div>
 
         <div class="ing-head">
