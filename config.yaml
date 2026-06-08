@@ -2,13 +2,10 @@ name: "Beikost Planner"
 version: "0.1.0"
 slug: "beikost_planner"
 description: "Rezepte, Wochenplan und automatische Einkaufsliste für die Beikost"
-url: "https://github.com/yourname/beikost-planner"
+url: "https://github.com/omegajani/babybeikost"
 arch:
   - aarch64
   - amd64
-  - armv7
-  - armhf
-  - i386
 init: false
 ingress: true
 ingress_port: 8099
