@@ -19,10 +19,7 @@
           <p class="tagline">Rezepte · Wochenplan · Einkauf</p>
         </div>
       </div>
-      <div class="lang-toggle" id="lang-toggle" title="Sprache der Gericht-Namen">
-        <button type="button" data-lang="it">IT</button>
-        <button type="button" data-lang="de">DE</button>
-      </div>
+      <button class="icon-btn settings-btn" id="btn-settings" title="Einstellungen" aria-label="Einstellungen">⚙️</button>
     </header>
 
     <main>
@@ -50,33 +47,42 @@
           <button class="btn ghost" id="btn-load-week">Laden</button>
         </div>
         <div id="freq-bar" class="freq-bar"></div>
-        <div class="plan-grid-wrap">
-          <div id="plan-grid" class="plan-grid"></div>
+        <div class="day-header">
+          <button class="daynav-btn" id="day-prev" aria-label="Vorheriger Tag">‹</button>
+          <span id="day-current" class="day-current"></span>
+          <button class="daynav-btn" id="day-next" aria-label="Nächster Tag">›</button>
         </div>
+        <div id="day-slots" class="day-slots"></div>
         <button class="btn primary wide" id="btn-make-list">Einkaufsliste erstellen →</button>
       </section>
 
-      <!-- Cell picker popover (add a dish to a day/meal) -->
+      <!-- Slot editor (choose recipe / free text / delete for one day+meal) -->
       <div id="cell-picker" class="modal-backdrop">
         <div class="modal compact">
           <div class="modal-head">
-            <h3 id="cell-picker-title">Gericht hinzufügen</h3>
+            <h3 id="cell-picker-title">Gericht</h3>
             <button class="icon-btn" id="cell-picker-close">✕</button>
           </div>
           <div class="modal-body">
             <div class="field">
-              <label>Rezept</label>
+              <label>Rezept auswählen</label>
               <select id="cell-recipe"></select>
             </div>
             <div class="field small">
               <label>Portionen</label>
               <input type="number" id="cell-portions" value="1" min="0.5" step="0.5" />
             </div>
+            <div class="or-divider"><span>oder</span></div>
+            <div class="field">
+              <label>Per Hand eintragen</label>
+              <input type="text" id="cell-label" placeholder="z. B. Reste von gestern" />
+            </div>
           </div>
           <div class="modal-foot">
+            <button class="btn danger" id="cell-picker-delete">Löschen</button>
             <div class="spacer"></div>
             <button class="btn ghost" id="cell-picker-cancel">Abbrechen</button>
-            <button class="btn primary" id="cell-picker-add">Hinzufügen</button>
+            <button class="btn primary" id="cell-picker-add">Speichern</button>
           </div>
         </div>
       </div>
@@ -111,12 +117,26 @@
         </div>
         <div id="shopping-list" class="stack"></div>
       </section>
+
+      <!-- ALLERGENS / food-introduction tracker -->
+      <section id="view-allergens" class="view">
+        <div class="view-head">
+          <h2>Eingeführt</h2>
+          <button class="btn primary" id="btn-new-food">+ Neu</button>
+        </div>
+        <p class="hint">Eingeführte Lebensmittel & Allergene protokollieren – Reaktionen festhalten und ans erneute Anbieten erinnern.</p>
+        <div id="reoffer-list"></div>
+        <div class="quickpick-head">Allergene schnell hinzufügen</div>
+        <div id="allergen-quickpick" class="quickpick"></div>
+        <div id="food-list" class="card-grid"></div>
+      </section>
     </main>
 
     <nav class="tabbar">
       <button class="tab active" data-view="recipes"><span>🍲</span>Rezepte</button>
       <button class="tab" data-view="plan"><span>🗓️</span>Plan</button>
       <button class="tab" data-view="shopping"><span>🛒</span>Einkauf</button>
+      <button class="tab" data-view="allergens"><span>🍓</span>Allergene</button>
     </nav>
   </div>
 
@@ -176,6 +196,110 @@
       </div>
     </div>
   </div>
+
+  <!-- Food / allergen editor modal -->
+  <div id="food-modal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="food-modal-title">Lebensmittel</h3>
+        <button class="icon-btn" id="food-modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label>Name (Italienisch)</label>
+          <input type="text" id="f-name" list="ingredient-names" placeholder="z. B. Uovo" />
+        </div>
+        <div class="field">
+          <label>Name (Deutsch, optional)</label>
+          <input type="text" id="f-name-de" placeholder="z. B. Ei" />
+        </div>
+        <div class="row">
+          <div class="field grow">
+            <label>Status</label>
+            <select id="f-status">
+              <option value="">– neutral –</option>
+              <option value="like">mag 😋</option>
+              <option value="dislike">mag nicht 😖</option>
+            </select>
+          </div>
+          <div class="field small">
+            <label>Erstes Mal</label>
+            <input type="date" id="f-first-date" />
+          </div>
+        </div>
+        <label class="check-row"><input type="checkbox" id="f-allergen" /> Hauptallergen</label>
+
+        <div class="ing-head">
+          <label>Reaktionen</label>
+        </div>
+        <div id="reaction-rows" class="stack"></div>
+        <div class="panel add-reaction">
+          <div class="field small">
+            <label>Datum</label>
+            <input type="date" id="re-date" />
+          </div>
+          <div class="field grow">
+            <label>Reaktion</label>
+            <select id="re-severity"></select>
+          </div>
+          <div class="field grow">
+            <label>Notiz</label>
+            <input type="text" id="re-note" placeholder="optional" />
+          </div>
+          <button class="btn primary" id="btn-add-reaction">+</button>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn danger" id="btn-delete-food">Löschen</button>
+        <div class="spacer"></div>
+        <button class="btn ghost" id="food-cancel">Abbrechen</button>
+        <button class="btn primary" id="btn-save-food">Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings modal -->
+  <div id="settings-modal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>Einstellungen</h3>
+        <button class="icon-btn" id="settings-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label>Anzeige-Sprache</label>
+          <div class="lang-toggle" id="lang-toggle">
+            <button type="button" data-lang="it">IT</button>
+            <button type="button" data-lang="de">DE</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Häufigkeit pro Woche</div>
+          <p class="hint" style="margin:0 0 8px">Richtwerte für die Lebensmittelgruppen im Wochenplan (min–max).</p>
+          <div id="freq-settings"></div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Allergen-Erinnerung</div>
+          <div class="row" style="align-items:flex-end">
+            <div class="field small">
+              <label>Erneut anbieten nach</label>
+              <input type="number" id="set-reoffer" min="1" step="1" />
+            </div>
+            <div class="field grow"><span class="hint" style="margin:0">Tagen ohne erneutes Anbieten gilt ein Lebensmittel als „fällig".</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <div class="spacer"></div>
+        <button class="btn ghost" id="settings-cancel">Abbrechen</button>
+        <button class="btn primary" id="btn-save-settings">Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <datalist id="ingredient-names"></datalist>
 
   <div id="toast" class="toast"></div>
 

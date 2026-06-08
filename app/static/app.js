@@ -14,9 +14,13 @@ let AISLES = ["Sonstiges"];
 let MEALS = [];
 let DAYS = [];
 let FOOD_GROUPS = [];
+let ALLERGENS = [];
+let SEVERITIES = [];
+let REOFFER_DAYS = 3;
+let FOODS = [];
 let LANG = "it";            // display language for dish/ingredient names
 let editingId = null;
-let pickerCtx = null;       // {day, meal} while the cell picker is open
+let editingFood = null;     // food being edited in the food modal
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, cls, html) => {
@@ -61,8 +65,9 @@ document.querySelectorAll(".tab").forEach((tab) => {
 function switchView(name) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === name));
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + name));
-  if (name === "plan") renderPlanGrid();
+  if (name === "plan") renderDay();
   if (name === "shopping") renderShopping();
+  if (name === "allergens") loadFoods();
 }
 
 // ---------------- Language toggle ----------------
@@ -80,8 +85,9 @@ async function setLang(lang) {
   renderRecipes();
   fillRecipeSelect();
   const active = document.querySelector(".view.active");
-  if (active && active.id === "view-plan") renderPlanGrid();
+  if (active && active.id === "view-plan") renderDay();
   if (active && active.id === "view-shopping") renderShopping();
+  if (active && active.id === "view-allergens") renderAllergens();
 }
 document.querySelectorAll("#lang-toggle button").forEach((b) =>
   b.addEventListener("click", () => setLang(b.dataset.lang)));
@@ -91,6 +97,16 @@ async function loadRecipes() {
   RECIPES = await api("recipes");
   renderRecipes();
   fillRecipeSelect();
+  fillIngredientDatalist();
+}
+
+function fillIngredientDatalist() {
+  const dl = $("#ingredient-names");
+  if (!dl) return;
+  const names = new Set();
+  RECIPES.forEach((r) => r.ingredients.forEach((i) => { if (i.name) names.add(i.name); }));
+  dl.innerHTML = "";
+  [...names].sort().forEach((n) => { const o = el("option"); o.value = n; dl.appendChild(o); });
 }
 
 function renderRecipes() {
@@ -221,70 +237,80 @@ $("#modal-close").addEventListener("click", closeModal);
 $("#btn-cancel").addEventListener("click", closeModal);
 $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
 
-// ---------------- Plan grid ----------------
+// ---------------- Plan (single-day view) ----------------
 let PLAN = [];
 let DAY_NOTES = {};
+let currentDay = (new Date().getDay() + 6) % 7;  // 0=Mon .. 6=Sun, default today
+let slotCtx = null;                              // {day, meal, entry} while editor open
 
-async function renderPlanGrid() {
+async function renderDay() {
   [PLAN, DAY_NOTES] = await Promise.all([api("plan"), api("day-notes")]);
+  currentDay = Math.max(0, Math.min(DAYS.length - 1, currentDay));
   renderFreqBar();
-  const grid = $("#plan-grid");
-  grid.innerHTML = "";
-  grid.style.gridTemplateColumns = `96px repeat(${DAYS.length}, minmax(132px, 1fr))`;
+  renderDayHeader();
 
-  // Header row: corner + day headers.
-  grid.appendChild(el("div", "grid-corner"));
-  DAYS.forEach((d) => {
-    const h = el("div", "grid-dayhead");
-    h.innerHTML = `<span class="d-short">${esc(dayLabel(d, true))}</span>`;
-    grid.appendChild(h);
-  });
+  const wrap = $("#day-slots");
+  wrap.innerHTML = "";
+  const dayKey = DAYS[currentDay].key;
 
-  // One row per meal slot.
   MEALS.forEach((m) => {
-    grid.appendChild(el("div", "grid-meallabel", esc(mealLabel(m))));
-    DAYS.forEach((d) => {
-      const cell = el("div", "grid-cell");
-      const entries = PLAN.filter((p) => p.day === d.key && p.meal === m.key);
-      entries.forEach((p) => cell.appendChild(buildChip(p)));
-      const add = el("button", "cell-add", "+");
-      add.title = "Gericht hinzufügen";
-      add.addEventListener("click", () => openPicker(d.key, m.key, d, m));
-      cell.appendChild(add);
-      grid.appendChild(cell);
-    });
+    const entry = PLAN.find((p) => p.day === dayKey && p.meal === m.key) || null;
+    const row = el("div", "meal-slot");
+    row.appendChild(el("div", "slot-label", esc(mealLabel(m))));
+    const dish = el("button", "slot-dish" + (entry ? "" : " empty"));
+    if (entry) {
+      const g = fg(entry.food_group);
+      if (g) dish.style.setProperty("--fg", g.color);
+      const nm = entry.manual ? (entry.name || "—") : tName(entry);
+      const port = (entry.portions && entry.portions !== 1) ? ` ·${fmt(entry.portions)}` : "";
+      const icon = g ? '<span class="fg-dot"></span>' : (entry.manual ? '<span class="hand">✎</span>' : "");
+      dish.innerHTML = `${icon}<span class="slot-name">${esc(nm)}${port}</span>`;
+    } else {
+      dish.innerHTML = `<span class="slot-add">+ hinzufügen</span>`;
+    }
+    dish.addEventListener("click", () => openSlot(dayKey, m, entry));
+    row.appendChild(dish);
+    wrap.appendChild(row);
   });
 
-  // "Ricorda di… / Daran denken" row.
-  grid.appendChild(el("div", "grid-meallabel note", LANG === "de" ? "Daran denken" : "Ricorda di…"));
-  DAYS.forEach((d) => {
-    const cell = el("div", "grid-cell note-cell");
-    const inp = el("input", "note-input");
-    inp.value = DAY_NOTES[d.key] || "";
-    inp.placeholder = "…";
-    inp.addEventListener("change", async () => {
-      await api("day-notes", { method: "POST", body: JSON.stringify({ day: d.key, text: inp.value }) });
-      DAY_NOTES[d.key] = inp.value.trim();
-    });
-    cell.appendChild(inp);
-    grid.appendChild(cell);
+  // "Daran denken" note for the current day.
+  const noteRow = el("div", "meal-slot note");
+  noteRow.appendChild(el("div", "slot-label", LANG === "de" ? "Daran denken" : "Ricorda di…"));
+  const inp = el("input", "note-input");
+  inp.value = DAY_NOTES[dayKey] || "";
+  inp.placeholder = "…";
+  inp.addEventListener("change", async () => {
+    await api("day-notes", { method: "POST", body: JSON.stringify({ day: dayKey, text: inp.value }) });
+    DAY_NOTES[dayKey] = inp.value.trim();
   });
+  noteRow.appendChild(inp);
+  wrap.appendChild(noteRow);
 }
 
-function buildChip(p) {
-  const g = fg(p.food_group);
-  const chip = el("div", "dish-chip");
-  if (g) chip.style.setProperty("--fg", g.color);
-  const portions = (p.portions && p.portions !== 1) ? ` ·${fmt(p.portions)}` : "";
-  chip.innerHTML = `${g ? '<span class="fg-dot"></span>' : ""}<span class="chip-name">${esc(tName(p))}${portions}</span>`;
-  const x = el("button", "chip-x", "✕");
-  x.addEventListener("click", async (e) => {
-    e.stopPropagation();
-    await api("plan/" + p.id, { method: "DELETE" });
-    renderPlanGrid();
-  });
-  chip.appendChild(x);
-  return chip;
+function renderDayHeader() {
+  const lbl = $("#day-current");
+  if (lbl && DAYS[currentDay]) lbl.textContent = dayLabel(DAYS[currentDay], false);
+  $("#day-prev").disabled = currentDay <= 0;
+  $("#day-next").disabled = currentDay >= DAYS.length - 1;
+}
+
+function goDay(delta) {
+  currentDay = Math.max(0, Math.min(DAYS.length - 1, currentDay + delta));
+  renderDay();
+}
+$("#day-prev").addEventListener("click", () => goDay(-1));
+$("#day-next").addEventListener("click", () => goDay(1));
+
+// Swipe left/right on the slot area to change day.
+{
+  const area = $("#day-slots");
+  let x0 = null;
+  area.addEventListener("touchstart", (e) => { x0 = e.changedTouches[0].clientX; }, { passive: true });
+  area.addEventListener("touchend", (e) => {
+    if (x0 == null) return;
+    const dx = e.changedTouches[0].clientX - x0; x0 = null;
+    if (Math.abs(dx) > 50) goDay(dx < 0 ? 1 : -1);
+  }, { passive: true });
 }
 
 function renderFreqBar() {
@@ -308,37 +334,51 @@ function renderFreqBar() {
   });
 }
 
-// ---------------- Cell picker ----------------
-function openPicker(dayKey, mealKey, dayObj, mealObj) {
-  if (!RECIPES.length) { toast("Erst ein Rezept anlegen oder Atlas-Woche laden"); return; }
-  pickerCtx = { day: dayKey, meal: mealKey };
+// ---- Slot editor (recipe / free text / delete) ----
+function openSlot(dayKey, mealObj, entry) {
+  slotCtx = { day: dayKey, meal: mealObj.key, entry };
   fillRecipeSelect();
-  $("#cell-portions").value = 1;
-  $("#cell-picker-title").textContent = `${mealLabel(mealObj)} · ${dayLabel(dayObj, false)}`;
+  $("#cell-label").value = (entry && entry.manual) ? (entry.name || "") : "";
+  $("#cell-portions").value = (entry && entry.portions) ? entry.portions : 1;
+  if (entry && !entry.manual && entry.recipe_id) $("#cell-recipe").value = String(entry.recipe_id);
+  $("#cell-picker-title").textContent = `${mealLabel(mealObj)} · ${dayLabel(DAYS[currentDay], false)}`;
+  $("#cell-picker-delete").style.display = entry ? "" : "none";
   $("#cell-picker").classList.add("open");
 }
-function closePicker() { $("#cell-picker").classList.remove("open"); pickerCtx = null; }
+function closeSlot() { $("#cell-picker").classList.remove("open"); slotCtx = null; }
 
-$("#cell-picker-close").addEventListener("click", closePicker);
-$("#cell-picker-cancel").addEventListener("click", closePicker);
-$("#cell-picker").addEventListener("click", (e) => { if (e.target.id === "cell-picker") closePicker(); });
+async function setSlot(body) {
+  await api("plan/set", { method: "POST", body: JSON.stringify(body) });
+  closeSlot();
+  renderDay();
+}
+
+$("#cell-picker-close").addEventListener("click", closeSlot);
+$("#cell-picker-cancel").addEventListener("click", closeSlot);
+$("#cell-picker").addEventListener("click", (e) => { if (e.target.id === "cell-picker") closeSlot(); });
 $("#cell-picker-add").addEventListener("click", async () => {
-  if (!pickerCtx) return;
-  const recipe_id = parseInt($("#cell-recipe").value);
-  if (!recipe_id) { toast("Kein Rezept gewählt"); return; }
+  if (!slotCtx) return;
+  const label = $("#cell-label").value.trim();
   const portions = parseFloat($("#cell-portions").value) || 1;
-  await api("plan", { method: "POST", body: JSON.stringify({
-    recipe_id, portions, day: pickerCtx.day, meal: pickerCtx.meal,
-  })});
-  closePicker();
-  renderPlanGrid();
+  const base = { day: slotCtx.day, meal: slotCtx.meal, portions };
+  if (label) {
+    await setSlot({ ...base, label });
+  } else {
+    const rid = parseInt($("#cell-recipe").value);
+    if (!rid) { toast("Rezept wählen oder per Hand eintragen"); return; }
+    await setSlot({ ...base, recipe_id: rid });
+  }
+});
+$("#cell-picker-delete").addEventListener("click", async () => {
+  if (!slotCtx) return;
+  await setSlot({ day: slotCtx.day, meal: slotCtx.meal });  // empty payload clears the slot
 });
 
 // ---------------- Plan actions ----------------
 $("#btn-clear-plan").addEventListener("click", async () => {
   if (!confirm("Ganzen Plan leeren?")) return;
   await api("plan/clear", { method: "POST" });
-  renderPlanGrid();
+  renderDay();
 });
 $("#btn-load-week").addEventListener("click", async () => {
   const week = parseInt($("#atlas-week").value) || 1;
@@ -346,7 +386,7 @@ $("#btn-load-week").addEventListener("click", async () => {
   try {
     const res = await api("load-example-week", { method: "POST", body: JSON.stringify({ week, clear: true }) });
     await loadRecipes();        // atlas import may have added recipes
-    renderPlanGrid();
+    renderDay();
     toast(`Atlas-Woche ${week} geladen (${res.added} Einträge) ✓`);
   } catch (e) { toast("Fehler: " + e.message); }
 });
@@ -427,7 +467,259 @@ $("#btn-copy").addEventListener("click", async () => {
   }
 });
 
+// ---------------- Allergen / food tracker ----------------
+function sev(key) { return SEVERITIES.find((s) => s.key === key); }
+function sevLabel(key) { const s = sev(key); return s ? (LANG === "de" ? s.de : s.it) : ""; }
+function allergenLabel(a) { return LANG === "de" ? a.de : a.it; }
+function statusLabel(st) {
+  if (st === "like") return LANG === "de" ? "mag 😋" : "gli piace 😋";
+  if (st === "dislike") return LANG === "de" ? "mag nicht 😖" : "non gli piace 😖";
+  return "";
+}
+function fmtDate(iso) {
+  if (!iso) return "";
+  const p = iso.split("-");
+  return p.length === 3 ? `${p[2]}.${p[1]}.${p[0]}` : iso;
+}
+
+function fillSeveritySelect() {
+  const sel = $("#re-severity");
+  if (!sel) return;
+  sel.innerHTML = "";
+  SEVERITIES.forEach((s) => { const o = el("option"); o.value = s.key; o.textContent = LANG === "de" ? s.de : s.it; sel.appendChild(o); });
+}
+
+async function loadFoods() {
+  FOODS = await api("foods");
+  renderAllergens();
+}
+
+function renderAllergens() {
+  fillSeveritySelect();
+  renderReofferList();
+  renderQuickpick();
+  renderFoodList();
+}
+
+function renderReofferList() {
+  const wrap = $("#reoffer-list");
+  wrap.innerHTML = "";
+  const due = FOODS.filter((f) => f.due);
+  if (!due.length) return;
+  const box = el("div", "reoffer-box");
+  box.appendChild(el("div", "reoffer-title", `🔔 ${LANG === "de" ? "Erneut anbieten" : "Da riproporre"}`));
+  const chips = el("div", "reoffer-chips");
+  due.forEach((f) => {
+    const chip = el("button", "reoffer-chip" + (f.allergen ? " allergen" : ""));
+    chip.innerHTML = `${esc(tName(f))} <span class="ago">${fmtDate(f.last_date)}</span>`;
+    chip.addEventListener("click", () => openFoodModal(f));
+    chips.appendChild(chip);
+  });
+  box.appendChild(chips);
+  wrap.appendChild(box);
+}
+
+function renderQuickpick() {
+  const wrap = $("#allergen-quickpick");
+  wrap.innerHTML = "";
+  // canonical names already tracked (to mark allergens as done)
+  const tracked = new Set(FOODS.map((f) => f.name.toLowerCase()));
+  ALLERGENS.forEach((a) => {
+    const done = tracked.has(a.it.toLowerCase());
+    const chip = el("button", "qp-chip" + (done ? " done" : ""));
+    chip.textContent = allergenLabel(a) + (done ? " ✓" : "");
+    chip.addEventListener("click", () => {
+      if (done) {
+        const f = FOODS.find((x) => x.name.toLowerCase() === a.it.toLowerCase());
+        if (f) openFoodModal(f);
+      } else {
+        openFoodModal(null, { name: a.it, name_de: a.de, allergen: true });
+      }
+    });
+    wrap.appendChild(chip);
+  });
+}
+
+function renderFoodList() {
+  const wrap = $("#food-list");
+  wrap.innerHTML = "";
+  if (!FOODS.length) {
+    wrap.appendChild(el("div", "empty", "Noch nichts eingeführt. Tippe auf „+ Neu“ oder ein Allergen oben."));
+    return;
+  }
+  FOODS.forEach((f) => {
+    const card = el("div", "food-card");
+    const s = sev(f.max_severity);
+    const dot = s ? `<span class="sev-dot" style="--sev:${s.color}" title="${esc(sevLabel(f.max_severity))}"></span>` : "";
+    const badges = [];
+    if (f.allergen) badges.push('<span class="badge allergen">Allergen</span>');
+    if (f.status) badges.push(`<span class="badge soft">${esc(statusLabel(f.status))}</span>`);
+    if (f.due) badges.push(`<span class="badge due">${LANG === "de" ? "fällig" : "da riproporre"}</span>`);
+    card.innerHTML = `<div class="badges">${badges.join("")}</div>
+      <h3>${dot}${esc(tName(f))}</h3>
+      <div class="meta">${f.reactions.length} ${LANG === "de" ? "Versuch(e)" : "tentativi"} · ${LANG === "de" ? "zuletzt" : "ultimo"} ${esc(fmtDate(f.last_date)) || "–"}</div>`;
+    card.addEventListener("click", () => openFoodModal(f));
+    wrap.appendChild(card);
+  });
+}
+
+// ---- Food modal ----
+function openFoodModal(food, prefill) {
+  editingFood = food || null;
+  const src = food || prefill || {};
+  $("#food-modal-title").textContent = food ? tName(food) : (LANG === "de" ? "Neues Lebensmittel" : "Nuovo alimento");
+  $("#f-name").value = src.name || "";
+  $("#f-name-de").value = src.name_de || "";
+  $("#f-status").value = src.status || "";
+  $("#f-allergen").checked = !!src.allergen;
+  $("#f-first-date").value = (food && food.first_date) || todayISO();
+  $("#re-date").value = todayISO();
+  $("#re-note").value = "";
+  $("#btn-delete-food").style.display = food ? "" : "none";
+  renderReactionRows();
+  $("#food-modal").classList.add("open");
+}
+function closeFoodModal() { $("#food-modal").classList.remove("open"); editingFood = null; }
+
+function renderReactionRows() {
+  const wrap = $("#reaction-rows");
+  wrap.innerHTML = "";
+  const reactions = (editingFood && editingFood.reactions) || [];
+  if (!reactions.length) {
+    wrap.appendChild(el("div", "hint", LANG === "de" ? "Noch keine Reaktion erfasst." : "Nessuna reazione registrata."));
+    return;
+  }
+  reactions.forEach((r) => {
+    const s = sev(r.severity);
+    const row = el("div", "list-row");
+    row.innerHTML = `<span class="sev-dot" style="--sev:${s ? s.color : "#ccc"}"></span>
+      <div class="grow"><div class="title">${esc(sevLabel(r.severity))} <span class="sub">${esc(fmtDate(r.date))}</span></div>
+      ${r.note ? `<div class="sub">${esc(r.note)}</div>` : ""}</div>`;
+    const del = el("button", "icon-btn", "✕");
+    del.addEventListener("click", async () => {
+      await api("reactions/" + r.id, { method: "DELETE" });
+      await refreshFoodsKeepEditing();
+    });
+    row.appendChild(del);
+    wrap.appendChild(row);
+  });
+}
+
+function foodBody() {
+  return {
+    name: $("#f-name").value.trim(),
+    name_de: $("#f-name-de").value.trim(),
+    allergen: $("#f-allergen").checked,
+    status: $("#f-status").value,
+    first_date: $("#f-first-date").value,
+  };
+}
+
+async function persistFood() {
+  // Create or update without closing; returns the food dict and keeps editingFood in sync.
+  const body = foodBody();
+  let res;
+  if (editingFood && editingFood.id) res = await api("foods/" + editingFood.id, { method: "PUT", body: JSON.stringify(body) });
+  else res = await api("foods", { method: "POST", body: JSON.stringify(body) });
+  editingFood = res;
+  return res;
+}
+
+async function refreshFoodsKeepEditing() {
+  FOODS = await api("foods");
+  renderAllergens();
+  if (editingFood) { editingFood = FOODS.find((f) => f.id === editingFood.id) || editingFood; renderReactionRows(); }
+}
+
+$("#btn-new-food").addEventListener("click", () => openFoodModal(null));
+$("#food-modal-close").addEventListener("click", closeFoodModal);
+$("#food-cancel").addEventListener("click", closeFoodModal);
+$("#food-modal").addEventListener("click", (e) => { if (e.target.id === "food-modal") closeFoodModal(); });
+
+$("#btn-save-food").addEventListener("click", async () => {
+  if (!foodBody().name) { toast("Name fehlt"); return; }
+  try { await persistFood(); closeFoodModal(); await loadFoods(); toast("Gespeichert ✓"); }
+  catch (e) { toast("Fehler: " + e.message); }
+});
+
+$("#btn-delete-food").addEventListener("click", async () => {
+  if (!editingFood || !editingFood.id) return;
+  if (!confirm("Eintrag wirklich löschen?")) return;
+  await api("foods/" + editingFood.id, { method: "DELETE" });
+  closeFoodModal(); await loadFoods(); toast("Gelöscht");
+});
+
+$("#btn-add-reaction").addEventListener("click", async () => {
+  if (!foodBody().name) { toast("Erst einen Namen eingeben"); return; }
+  try {
+    if (!editingFood || !editingFood.id) await persistFood();   // create the food first
+    await api("foods/" + editingFood.id + "/reactions", { method: "POST", body: JSON.stringify({
+      date: $("#re-date").value, severity: $("#re-severity").value, note: $("#re-note").value,
+    })});
+    $("#re-note").value = "";
+    await refreshFoodsKeepEditing();
+    toast("Reaktion erfasst ✓");
+  } catch (e) { toast("Fehler: " + e.message); }
+});
+
+// ---------------- Settings ----------------
+function openSettings() {
+  const wrap = $("#freq-settings");
+  wrap.innerHTML = "";
+  FOOD_GROUPS.forEach((g) => {
+    const row = el("div", "freq-set-row");
+    row.dataset.key = g.key;
+    row.innerHTML = `<span class="freq-dot" style="--fg:${g.color}"></span>
+      <span class="freq-set-label">${esc(LANG === "de" ? g.de : g.it)}</span>`;
+    const min = el("input"); min.type = "number"; min.min = "0"; min.step = "1"; min.value = g.min; min.dataset.k = "min";
+    const dash = el("span", "freq-dash", "–");
+    const max = el("input"); max.type = "number"; max.min = "0"; max.step = "1"; max.value = g.max; max.dataset.k = "max";
+    row.append(min, dash, max);
+    wrap.appendChild(row);
+  });
+  $("#set-reoffer").value = REOFFER_DAYS;
+  syncLangToggle();
+  $("#settings-modal").classList.add("open");
+}
+function closeSettings() { $("#settings-modal").classList.remove("open"); }
+
+async function reloadMeta() {
+  const meta = await api("meta");
+  FOOD_GROUPS = meta.food_groups || FOOD_GROUPS;
+  REOFFER_DAYS = meta.reoffer_days ?? REOFFER_DAYS;
+  const active = document.querySelector(".view.active");
+  if (active && active.id === "view-plan") renderDay();
+  if (active && active.id === "view-allergens") loadFoods();
+}
+
+async function saveSettings() {
+  const targets = {};
+  [...$("#freq-settings").children].forEach((row) => {
+    const get = (k) => parseInt(row.querySelector(`[data-k="${k}"]`).value);
+    const mn = get("min"), mx = get("max");
+    targets[row.dataset.key] = {
+      min: Number.isNaN(mn) ? 0 : Math.max(0, mn),
+      max: Number.isNaN(mx) ? 0 : Math.max(0, mx),
+    };
+  });
+  const reoffer = Math.max(1, parseInt($("#set-reoffer").value) || REOFFER_DAYS);
+  try {
+    await api("settings", { method: "POST", body: JSON.stringify({ key: "freq_targets", value: JSON.stringify(targets) }) });
+    await api("settings", { method: "POST", body: JSON.stringify({ key: "reoffer_days", value: String(reoffer) }) });
+    await reloadMeta();
+    closeSettings();
+    toast("Einstellungen gespeichert ✓");
+  } catch (e) { toast("Fehler: " + e.message); }
+}
+
+$("#btn-settings").addEventListener("click", openSettings);
+$("#settings-close").addEventListener("click", closeSettings);
+$("#settings-cancel").addEventListener("click", closeSettings);
+$("#settings-modal").addEventListener("click", (e) => { if (e.target.id === "settings-modal") closeSettings(); });
+$("#btn-save-settings").addEventListener("click", saveSettings);
+
 // ---------------- Helpers ----------------
+function todayISO() { return new Date().toISOString().slice(0, 10); }
 function esc(s) { return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 function fmt(n) { return Number.isInteger(n) ? n : Number(n).toFixed(1); }
 
@@ -439,9 +731,13 @@ function fmt(n) { return Number.isInteger(n) ? n : Number(n).toFixed(1); }
     MEALS = meta.meals || [];
     DAYS = meta.days || [];
     FOOD_GROUPS = meta.food_groups || [];
+    ALLERGENS = meta.allergens || [];
+    SEVERITIES = meta.severities || [];
+    REOFFER_DAYS = meta.reoffer_days ?? 3;
     LANG = meta.content_lang || "it";
     syncLangToggle();
     fillFoodGroupSelect();
+    fillSeveritySelect();
     const itemAisle = $("#item-aisle");
     AISLES.forEach((a) => { const o = el("option"); o.textContent = a; itemAisle.appendChild(o); });
     await loadRecipes();

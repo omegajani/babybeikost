@@ -4,9 +4,11 @@ Stores recipes, a weekly plan and a shopping list in SQLite.
 Designed to run as a Home Assistant add-on behind Ingress, but also runs
 standalone (DB then lands next to this file).
 """
+import json
 import os
 import sqlite3
 from contextlib import closing
+from datetime import date
 from pathlib import Path
 from typing import Optional
 
@@ -59,6 +61,35 @@ FOOD_GROUPS = [
     {"key": "formaggi", "it": "Formaggi", "de": "Käse", "color": "#9b8bd6", "min": 0, "max": 2},
 ]
 
+# Allergen tracker -----------------------------------------------------------
+# Major allergens commonly introduced during weaning (bilingual quick-pick).
+ALLERGENS = [
+    {"key": "uovo", "it": "Uovo", "de": "Ei"},
+    {"key": "latte", "it": "Latte vaccino", "de": "Kuhmilch"},
+    {"key": "arachidi", "it": "Arachidi", "de": "Erdnuss"},
+    {"key": "frutta_guscio", "it": "Frutta a guscio", "de": "Nüsse"},
+    {"key": "glutine", "it": "Glutine (frumento)", "de": "Gluten (Weizen)"},
+    {"key": "soia", "it": "Soia", "de": "Soja"},
+    {"key": "pesce", "it": "Pesce", "de": "Fisch"},
+    {"key": "crostacei", "it": "Crostacei", "de": "Krebstiere"},
+    {"key": "molluschi", "it": "Molluschi", "de": "Weichtiere"},
+    {"key": "sesamo", "it": "Sesamo", "de": "Sesam"},
+    {"key": "senape", "it": "Senape", "de": "Senf"},
+    {"key": "sedano", "it": "Sedano", "de": "Sellerie"},
+    {"key": "lupini", "it": "Lupini", "de": "Lupine"},
+    {"key": "solfiti", "it": "Solfiti", "de": "Sulfite"},
+]
+
+# Reaction severities for an introduced food.
+SEVERITIES = [
+    {"key": "none", "it": "Nessuna", "de": "Keine", "color": "#7fae5a"},
+    {"key": "mild", "it": "Lieve", "de": "Leicht", "color": "#f2b84b"},
+    {"key": "strong", "it": "Forte", "de": "Stark", "color": "#e8746b"},
+]
+
+# After this many days a (re-)offer of an introduced food is considered due.
+REOFFER_DAYS = 3
+
 app = FastAPI(title="Beikost Planner")
 
 
@@ -77,6 +108,34 @@ def _ensure_column(conn, table: str, col: str, decl: str) -> None:
     cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     if col not in cols:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+
+
+def _migrate_plan_table(conn) -> None:
+    """Allow free-text plan entries: make recipe_id nullable and add a `label` column.
+
+    Rebuilds the `plan` table once (SQLite can't drop a NOT NULL constraint in place).
+    Existing rows are preserved. Run AFTER `meal` exists on the table.
+    """
+    cols = {r["name"]: r for r in conn.execute("PRAGMA table_info(plan)").fetchall()}
+    recipe_notnull = bool(cols.get("recipe_id") and cols["recipe_id"]["notnull"])
+    if "label" in cols and not recipe_notnull:
+        return  # already migrated
+    conn.executescript(
+        """
+        CREATE TABLE plan_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            recipe_id INTEGER REFERENCES recipes(id) ON DELETE CASCADE,
+            portions REAL NOT NULL DEFAULT 1,
+            day TEXT DEFAULT '',
+            meal TEXT DEFAULT '',
+            label TEXT DEFAULT ''
+        );
+        INSERT INTO plan_new (id, recipe_id, portions, day, meal, label)
+            SELECT id, recipe_id, portions, day, COALESCE(meal, ''), '' FROM plan;
+        DROP TABLE plan;
+        ALTER TABLE plan_new RENAME TO plan;
+        """
+    )
 
 
 def init_db() -> None:
@@ -124,6 +183,21 @@ def init_db() -> None:
                 day TEXT PRIMARY KEY,
                 text TEXT DEFAULT ''
             );
+            CREATE TABLE IF NOT EXISTS foods_introduced (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                name_de TEXT DEFAULT '',
+                allergen INTEGER DEFAULT 0,
+                status TEXT DEFAULT '',
+                first_date TEXT DEFAULT ''
+            );
+            CREATE TABLE IF NOT EXISTS food_reactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                food_id INTEGER NOT NULL REFERENCES foods_introduced(id) ON DELETE CASCADE,
+                date TEXT DEFAULT '',
+                severity TEXT DEFAULT 'none',
+                note TEXT DEFAULT ''
+            );
             """
         )
         # Additive migrations for the bilingual / grid features.
@@ -132,6 +206,7 @@ def init_db() -> None:
         _ensure_column(conn, "recipes", "food_group", "TEXT DEFAULT ''")
         _ensure_column(conn, "ingredients", "name_de", "TEXT DEFAULT ''")
         _ensure_column(conn, "plan", "meal", "TEXT DEFAULT ''")
+        _migrate_plan_table(conn)
     seed_if_empty()
 
 
@@ -212,10 +287,11 @@ class RecipeIn(BaseModel):
 
 
 class PlanIn(BaseModel):
-    recipe_id: int
+    recipe_id: Optional[int] = None
     portions: float = 1
     day: str = ""
     meal: str = ""
+    label: str = ""
 
 
 class SettingIn(BaseModel):
@@ -231,6 +307,20 @@ class DayNoteIn(BaseModel):
 class ExampleWeekIn(BaseModel):
     week: int = 1
     clear: bool = True
+
+
+class FoodIn(BaseModel):
+    name: str
+    name_de: str = ""
+    allergen: bool = False
+    status: str = ""          # '' | 'like' | 'dislike'
+    first_date: str = ""      # ISO yyyy-mm-dd
+
+
+class ReactionIn(BaseModel):
+    date: str = ""
+    severity: str = "none"    # 'none' | 'mild' | 'strong'
+    note: str = ""
 
 
 class ManualItemIn(BaseModel):
@@ -340,11 +430,21 @@ def _save_ingredients(conn, rid, ingredients):
 def get_plan():
     with closing(connect()) as conn:
         rows = conn.execute(
-            "SELECT p.id, p.recipe_id, p.portions, p.day, p.meal, "
+            "SELECT p.id, p.recipe_id, p.portions, p.day, p.meal, p.label, "
             "r.name, r.name_de, r.category, r.servings, r.food_group "
-            "FROM plan p JOIN recipes r ON r.id = p.recipe_id ORDER BY p.id"
+            "FROM plan p LEFT JOIN recipes r ON r.id = p.recipe_id ORDER BY p.id"
         ).fetchall()
-        return [dict(r) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["manual"] = d["recipe_id"] is None
+            if d["manual"]:
+                # Free-text entry: show its label, no recipe metadata.
+                d["name"] = d["label"] or ""
+                d["name_de"] = ""
+                d["food_group"] = ""
+            out.append(d)
+        return out
 
 
 @app.post("/api/plan")
@@ -357,6 +457,29 @@ def add_plan(data: PlanIn):
             "INSERT INTO plan (recipe_id, portions, day, meal) VALUES (?,?,?,?)",
             (data.recipe_id, max(data.portions, 0.1), data.day, data.meal),
         )
+    return {"ok": True}
+
+
+@app.post("/api/plan/set")
+def set_plan_slot(data: PlanIn):
+    """Replace the dish in a single (day, meal) slot. Empty payload clears the slot."""
+    with closing(connect()) as conn, conn:
+        conn.execute("DELETE FROM plan WHERE day=? AND meal=?", (data.day, data.meal))
+        label = (data.label or "").strip()
+        if data.recipe_id is not None:
+            r = conn.execute("SELECT id FROM recipes WHERE id=?", (data.recipe_id,)).fetchone()
+            if not r:
+                raise HTTPException(404, "Rezept nicht gefunden")
+            conn.execute(
+                "INSERT INTO plan (recipe_id, portions, day, meal, label) VALUES (?,?,?,?,?)",
+                (data.recipe_id, max(data.portions, 0.1), data.day, data.meal, ""),
+            )
+        elif label:
+            conn.execute(
+                "INSERT INTO plan (recipe_id, portions, day, meal, label) VALUES (NULL,?,?,?,?)",
+                (max(data.portions, 0.1), data.day, data.meal, label),
+            )
+        # else: slot left empty (cleared)
     return {"ok": True}
 
 
@@ -483,16 +606,59 @@ def clear_checks():
     return {"ok": True}
 
 
+# --------------------------------------------------------------------------
+# Settings-backed configuration (frequency targets, reoffer threshold, language)
+# --------------------------------------------------------------------------
+def get_setting(conn, key, default=None):
+    row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def get_reoffer_days(conn) -> int:
+    try:
+        return max(1, int(get_setting(conn, "reoffer_days")))
+    except (TypeError, ValueError):
+        return REOFFER_DAYS
+
+
+def effective_food_groups(conn) -> list:
+    """FOOD_GROUPS with per-group min/max overrides from settings (JSON 'freq_targets')."""
+    overrides = {}
+    raw = get_setting(conn, "freq_targets")
+    if raw:
+        try:
+            overrides = json.loads(raw)
+        except (ValueError, TypeError):
+            overrides = {}
+    out = []
+    for g in FOOD_GROUPS:
+        gg = dict(g)
+        o = overrides.get(g["key"]) if isinstance(overrides, dict) else None
+        if isinstance(o, dict):
+            for k in ("min", "max"):
+                if k in o:
+                    try:
+                        gg[k] = max(0, int(o[k]))
+                    except (TypeError, ValueError):
+                        pass
+        out.append(gg)
+    return out
+
+
 @app.get("/api/meta")
 def meta():
     with closing(connect()) as conn:
-        row = conn.execute("SELECT value FROM settings WHERE key='content_lang'").fetchone()
-    lang = row["value"] if row else "it"
+        lang = get_setting(conn, "content_lang", "it")
+        food_groups = effective_food_groups(conn)
+        reoffer_days = get_reoffer_days(conn)
     return {
         "aisles": AISLES,
         "meals": MEALS,
         "days": DAYS,
-        "food_groups": FOOD_GROUPS,
+        "food_groups": food_groups,
+        "allergens": ALLERGENS,
+        "severities": SEVERITIES,
+        "reoffer_days": reoffer_days,
         "content_lang": lang,
     }
 
@@ -599,6 +765,121 @@ def load_example_week(data: ExampleWeekIn):
             )
             added += 1
     return {"ok": True, "added": added}
+
+
+# --------------------------------------------------------------------------
+# Allergen / food-introduction tracker
+# --------------------------------------------------------------------------
+_SEVERITY_RANK = {"none": 0, "mild": 1, "strong": 2}
+
+
+def _parse_date(s):
+    try:
+        return date.fromisoformat((s or "").strip())
+    except ValueError:
+        return None
+
+
+def food_to_dict(conn: sqlite3.Connection, row: sqlite3.Row, reoffer_days: int = REOFFER_DAYS) -> dict:
+    reactions = conn.execute(
+        "SELECT id, date, severity, note FROM food_reactions "
+        "WHERE food_id=? ORDER BY date DESC, id DESC",
+        (row["id"],),
+    ).fetchall()
+    reactions = [dict(r) for r in reactions]
+
+    # last_date = most recent reaction date, else the first-introduction date.
+    react_dates = [d for d in (_parse_date(r["date"]) for r in reactions) if d]
+    last_date = max(react_dates) if react_dates else _parse_date(row["first_date"])
+    due = bool(last_date and (date.today() - last_date).days >= reoffer_days)
+
+    max_severity = ""
+    if reactions:
+        max_severity = max(
+            (r["severity"] for r in reactions),
+            key=lambda s: _SEVERITY_RANK.get(s, 0),
+        )
+
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "name_de": row["name_de"] or "",
+        "allergen": bool(row["allergen"]),
+        "status": row["status"] or "",
+        "first_date": row["first_date"] or "",
+        "reactions": reactions,
+        "last_date": last_date.isoformat() if last_date else "",
+        "max_severity": max_severity,
+        "due": due,
+    }
+
+
+@app.get("/api/foods")
+def list_foods():
+    with closing(connect()) as conn:
+        rd = get_reoffer_days(conn)
+        rows = conn.execute(
+            "SELECT * FROM foods_introduced ORDER BY allergen DESC, name COLLATE NOCASE"
+        ).fetchall()
+        return [food_to_dict(conn, r, rd) for r in rows]
+
+
+@app.post("/api/foods")
+def create_food(data: FoodIn):
+    if not data.name.strip():
+        raise HTTPException(400, "Name fehlt")
+    first = data.first_date.strip() or date.today().isoformat()
+    with closing(connect()) as conn, conn:
+        cur = conn.execute(
+            "INSERT INTO foods_introduced (name, name_de, allergen, status, first_date) "
+            "VALUES (?,?,?,?,?)",
+            (data.name.strip(), data.name_de.strip(), int(data.allergen), data.status, first),
+        )
+        fid = cur.lastrowid
+        return food_to_dict(conn, conn.execute("SELECT * FROM foods_introduced WHERE id=?", (fid,)).fetchone(), get_reoffer_days(conn))
+
+
+@app.put("/api/foods/{fid}")
+def update_food(fid: int, data: FoodIn):
+    with closing(connect()) as conn, conn:
+        exists = conn.execute("SELECT id FROM foods_introduced WHERE id=?", (fid,)).fetchone()
+        if not exists:
+            raise HTTPException(404, "Eintrag nicht gefunden")
+        conn.execute(
+            "UPDATE foods_introduced SET name=?, name_de=?, allergen=?, status=?, first_date=? WHERE id=?",
+            (data.name.strip(), data.name_de.strip(), int(data.allergen), data.status,
+             data.first_date.strip(), fid),
+        )
+        return food_to_dict(conn, conn.execute("SELECT * FROM foods_introduced WHERE id=?", (fid,)).fetchone(), get_reoffer_days(conn))
+
+
+@app.delete("/api/foods/{fid}")
+def delete_food(fid: int):
+    with closing(connect()) as conn, conn:
+        conn.execute("DELETE FROM foods_introduced WHERE id=?", (fid,))
+    return {"ok": True}
+
+
+@app.post("/api/foods/{fid}/reactions")
+def add_reaction(fid: int, data: ReactionIn):
+    with closing(connect()) as conn, conn:
+        food = conn.execute("SELECT id FROM foods_introduced WHERE id=?", (fid,)).fetchone()
+        if not food:
+            raise HTTPException(404, "Eintrag nicht gefunden")
+        d = data.date.strip() or date.today().isoformat()
+        sev = data.severity if data.severity in _SEVERITY_RANK else "none"
+        conn.execute(
+            "INSERT INTO food_reactions (food_id, date, severity, note) VALUES (?,?,?,?)",
+            (fid, d, sev, data.note.strip()),
+        )
+        return food_to_dict(conn, conn.execute("SELECT * FROM foods_introduced WHERE id=?", (fid,)).fetchone(), get_reoffer_days(conn))
+
+
+@app.delete("/api/reactions/{rid}")
+def delete_reaction(rid: int):
+    with closing(connect()) as conn, conn:
+        conn.execute("DELETE FROM food_reactions WHERE id=?", (rid,))
+    return {"ok": True}
 
 
 # --------------------------------------------------------------------------
