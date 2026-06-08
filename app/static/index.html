@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Beikost Planner</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="static/app.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">🥄</span>
+        <div>
+          <h1>Beikost</h1>
+          <p class="tagline">Rezepte · Wochenplan · Einkauf</p>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <!-- RECIPES -->
+      <section id="view-recipes" class="view active">
+        <div class="view-head">
+          <h2>Rezepte</h2>
+          <button class="btn primary" id="btn-new-recipe">+ Neu</button>
+        </div>
+        <p class="hint">Beispielrezepte für ca. 9 Monate – passe Mengen an euer Kind an.</p>
+        <div id="recipe-list" class="card-grid"></div>
+      </section>
+
+      <!-- PLAN -->
+      <section id="view-plan" class="view">
+        <div class="view-head">
+          <h2>Wochenplan</h2>
+          <button class="btn ghost" id="btn-clear-plan">Plan leeren</button>
+        </div>
+        <div class="panel add-plan">
+          <div class="field grow">
+            <label>Rezept</label>
+            <select id="plan-recipe"></select>
+          </div>
+          <div class="field small">
+            <label>Tag</label>
+            <select id="plan-day">
+              <option value="">–</option>
+              <option>Mo</option><option>Di</option><option>Mi</option>
+              <option>Do</option><option>Fr</option><option>Sa</option><option>So</option>
+            </select>
+          </div>
+          <div class="field small">
+            <label>Portionen</label>
+            <input type="number" id="plan-portions" value="1" min="0.5" step="0.5" />
+          </div>
+          <button class="btn primary" id="btn-add-plan">Hinzufügen</button>
+        </div>
+        <div id="plan-list" class="stack"></div>
+        <button class="btn primary wide" id="btn-make-list">Einkaufsliste erstellen →</button>
+      </section>
+
+      <!-- SHOPPING -->
+      <section id="view-shopping" class="view">
+        <div class="view-head">
+          <h2>Einkaufsliste</h2>
+          <div class="head-actions">
+            <button class="btn ghost" id="btn-copy">Kopieren</button>
+            <button class="btn ghost" id="btn-clear-checks">Häkchen weg</button>
+          </div>
+        </div>
+        <div class="panel add-item">
+          <div class="field grow">
+            <label>Eigener Eintrag</label>
+            <input type="text" id="item-name" placeholder="z. B. Windeln" />
+          </div>
+          <div class="field tiny">
+            <label>Menge</label>
+            <input type="number" id="item-amount" step="any" />
+          </div>
+          <div class="field tiny">
+            <label>Einheit</label>
+            <input type="text" id="item-unit" placeholder="g" />
+          </div>
+          <div class="field small">
+            <label>Regal</label>
+            <select id="item-aisle"></select>
+          </div>
+          <button class="btn primary" id="btn-add-item">+</button>
+        </div>
+        <div id="shopping-list" class="stack"></div>
+      </section>
+    </main>
+
+    <nav class="tabbar">
+      <button class="tab active" data-view="recipes"><span>🍲</span>Rezepte</button>
+      <button class="tab" data-view="plan"><span>🗓️</span>Plan</button>
+      <button class="tab" data-view="shopping"><span>🛒</span>Einkauf</button>
+    </nav>
+  </div>
+
+  <!-- Recipe editor modal -->
+  <div id="modal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="modal-title">Neues Rezept</h3>
+        <button class="icon-btn" id="modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label>Name</label>
+          <input type="text" id="r-name" placeholder="z. B. Kürbis-Hirse-Brei" />
+        </div>
+        <div class="row">
+          <div class="field grow">
+            <label>Kategorie</label>
+            <select id="r-category">
+              <option>Frühstück</option><option>Mittag</option>
+              <option>Abend</option><option>Snack</option><option value="">–</option>
+            </select>
+          </div>
+          <div class="field small">
+            <label>Basis-Portionen</label>
+            <input type="number" id="r-servings" value="1" min="0.5" step="0.5" />
+          </div>
+        </div>
+        <div class="field">
+          <label>Notizen</label>
+          <input type="text" id="r-notes" placeholder="optional" />
+        </div>
+
+        <div class="ing-head">
+          <label>Zutaten</label>
+          <button class="btn ghost small-btn" id="btn-add-ing">+ Zutat</button>
+        </div>
+        <div id="ing-rows" class="ing-rows"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn danger" id="btn-delete-recipe">Löschen</button>
+        <div class="spacer"></div>
+        <button class="btn ghost" id="btn-cancel">Abbrechen</button>
+        <button class="btn primary" id="btn-save-recipe">Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="static/app.js"></script>
+</body>
+</html>
