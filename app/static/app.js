@@ -50,6 +50,10 @@ function tNotes(obj) {
   if (!obj) return "";
   return LANG === "de" && obj.notes_de ? obj.notes_de : (obj.notes || "");
 }
+function tInstr(obj) {
+  if (!obj) return "";
+  return LANG === "de" && obj.instructions_de ? obj.instructions_de : (obj.instructions || "");
+}
 function dayLabel(d, short) {
   if (short) return LANG === "de" ? d.short_de : d.short_it;
   return LANG === "de" ? d.de : d.it;
@@ -84,6 +88,7 @@ async function setLang(lang) {
   // Re-render everything that shows names.
   renderRecipes();
   fillRecipeSelect();
+  if ($("#recipe-view").classList.contains("open") && currentViewRecipe) openRecipeView(currentViewRecipe);
   const active = document.querySelector(".view.active");
   if (active && active.id === "view-plan") renderDay();
   if (active && active.id === "view-shopping") renderShopping();
@@ -123,7 +128,7 @@ function renderRecipes() {
     const cat = r.category ? `<span class="badge">${esc(r.category)}</span>` : "";
     card.innerHTML = `<div class="badges">${badge}${cat}</div><h3>${esc(tName(r))}</h3>
       <div class="meta">${r.ingredients.length} Zutaten · ${fmt(r.servings)} Portion(en)</div>`;
-    card.addEventListener("click", () => openModal(r));
+    card.addEventListener("click", () => openRecipeView(r));
     wrap.appendChild(card);
   });
 }
@@ -161,6 +166,8 @@ function openModal(recipe) {
   $("#r-servings").value = recipe ? recipe.servings : 1;
   $("#r-notes").value = recipe ? recipe.notes : "";
   $("#r-notes-de").value = recipe ? (recipe.notes_de || "") : "";
+  $("#r-instructions").value = recipe ? (recipe.instructions || "") : "";
+  $("#r-instructions-de").value = recipe ? (recipe.instructions_de || "") : "";
   $("#btn-delete-recipe").style.display = recipe ? "" : "none";
   $("#ing-rows").innerHTML = "";
   const ings = recipe && recipe.ingredients.length ? recipe.ingredients : [{ name: "", amount: "", unit: "", aisle: "Obst & Gemüse" }];
@@ -208,14 +215,22 @@ async function saveRecipe() {
     servings: parseFloat($("#r-servings").value) || 1,
     notes: $("#r-notes").value.trim(),
     notes_de: $("#r-notes-de").value.trim(),
+    instructions: $("#r-instructions").value.trim(),
+    instructions_de: $("#r-instructions-de").value.trim(),
     ingredients: collectIngredients(),
   };
   if (!body.name) { toast("Name fehlt"); return; }
   try {
-    if (editingId) await api("recipes/" + editingId, { method: "PUT", body: JSON.stringify(body) });
-    else await api("recipes", { method: "POST", body: JSON.stringify(body) });
+    let saved;
+    if (editingId) saved = await api("recipes/" + editingId, { method: "PUT", body: JSON.stringify(body) });
+    else saved = await api("recipes", { method: "POST", body: JSON.stringify(body) });
     closeModal();
     await loadRecipes();
+    // If the detail view is open, refresh it with the updated recipe.
+    if (saved && $("#recipe-view").classList.contains("open")) {
+      const fresh = RECIPES.find((r) => r.id === saved.id);
+      if (fresh) openRecipeView(fresh);
+    }
     toast("Gespeichert ✓");
   } catch (e) { toast("Fehler: " + e.message); }
 }
@@ -225,6 +240,7 @@ async function deleteRecipe() {
   if (!confirm("Rezept wirklich löschen?")) return;
   await api("recipes/" + editingId, { method: "DELETE" });
   closeModal();
+  closeRecipeView();
   await loadRecipes();
   toast("Gelöscht");
 }
@@ -236,6 +252,47 @@ $("#btn-delete-recipe").addEventListener("click", deleteRecipe);
 $("#modal-close").addEventListener("click", closeModal);
 $("#btn-cancel").addEventListener("click", closeModal);
 $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
+
+// ---------------- Recipe detail view ----------------
+let currentViewRecipe = null;
+function openRecipeView(recipe) {
+  currentViewRecipe = recipe;
+  const g = fg(recipe.food_group);
+  const badges = [];
+  if (g) badges.push(`<span class="badge fg" style="--fg:${g.color}">${esc(fgLabel(g))}</span>`);
+  if (recipe.category) badges.push(`<span class="badge">${esc(recipe.category)}</span>`);
+  $("#rv-badges").innerHTML = badges.join("");
+  $("#rv-title").textContent = tName(recipe);
+  $("#rv-meta").textContent = `${fmt(recipe.servings)} Portion(en)`;
+
+  const ul = $("#rv-ingredients");
+  ul.innerHTML = "";
+  if (!recipe.ingredients.length) {
+    ul.innerHTML = `<li class="rv-empty">Keine Zutaten hinterlegt</li>`;
+  } else {
+    recipe.ingredients.forEach((i) => {
+      const qty = (i.amount != null) ? `${fmt(i.amount)} ${i.unit || ""}`.trim() : (i.unit || "");
+      const li = el("li");
+      li.innerHTML = `<span class="rv-ing-name">${esc(tName(i))}</span><span class="rv-ing-qty">${esc(qty)}</span>`;
+      ul.appendChild(li);
+    });
+  }
+
+  const instr = tInstr(recipe);
+  $("#rv-instructions").textContent = instr;
+  $("#rv-instructions-wrap").style.display = instr ? "" : "none";
+
+  const notes = tNotes(recipe);
+  $("#rv-notes").textContent = notes;
+  $("#rv-notes-wrap").style.display = notes ? "" : "none";
+
+  const view = $("#recipe-view");
+  view.classList.add("open");
+  view.scrollTop = 0;
+}
+function closeRecipeView() { $("#recipe-view").classList.remove("open"); currentViewRecipe = null; }
+$("#rv-back").addEventListener("click", closeRecipeView);
+$("#rv-edit").addEventListener("click", () => { if (currentViewRecipe) openModal(currentViewRecipe); });
 
 // ---------------- Plan (single-day view) ----------------
 let PLAN = [];

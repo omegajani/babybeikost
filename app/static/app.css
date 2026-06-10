@@ -321,6 +321,37 @@ input:focus, select:focus { outline: 2px solid #f1c4b2; border-color: var(--acce
 .check-row input { width: auto; }
 .panel.add-reaction { margin-bottom: 0; }
 
+/* ---- Recipe detail view (full screen) ---- */
+.recipe-view {
+  position: fixed; inset: 0; z-index: 45; background: var(--bg);
+  display: none; flex-direction: column; overflow-y: auto;
+}
+.recipe-view.open { display: flex; }
+.rv-bar {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
+  background: rgba(251, 246, 238, 0.92); backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.rv-body { width: 100%; max-width: 720px; margin: 0 auto; padding: 16px 20px 64px; }
+.rv-body h2 { font-size: 26px; margin: 6px 0; }
+.rv-meta { color: var(--muted); font-size: 14px; font-weight: 600; }
+.rv-section { font-size: 17px; color: var(--accent-ink); margin: 22px 0 10px; }
+.rv-ingredients { list-style: none; display: flex; flex-direction: column; }
+.rv-ingredients li {
+  display: flex; justify-content: space-between; gap: 12px; align-items: baseline;
+  padding: 9px 2px; border-bottom: 1px solid var(--line); font-size: 15px;
+}
+.rv-ingredients .rv-ing-name { font-weight: 600; }
+.rv-ingredients .rv-ing-qty { color: var(--muted); font-weight: 700; white-space: nowrap; }
+.rv-ingredients .rv-empty { color: var(--muted); border: none; }
+.rv-instructions { white-space: pre-wrap; line-height: 1.6; font-size: 15px; color: var(--ink); }
+.rv-notes {
+  background: var(--sage-bg); border-radius: var(--radius-sm); padding: 12px 14px;
+  font-size: 14px; line-height: 1.5; color: #4f6443;
+}
+
 /* ---- Settings ---- */
 .settings-btn {
   font-size: 22px; width: 44px; height: 44px; flex: 0 0 auto;

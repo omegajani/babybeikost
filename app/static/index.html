@@ -181,6 +181,14 @@
           <label>Notizen (Deutsch, optional)</label>
           <input type="text" id="r-notes-de" placeholder="optional" />
         </div>
+        <div class="field">
+          <label>Zubereitung (Italienisch)</label>
+          <textarea id="r-instructions" rows="4" placeholder="Schritt für Schritt …"></textarea>
+        </div>
+        <div class="field">
+          <label>Zubereitung (Deutsch, optional)</label>
+          <textarea id="r-instructions-de" rows="4" placeholder="optional"></textarea>
+        </div>
 
         <div class="ing-head">
           <label>Zutaten</label>
@@ -193,6 +201,32 @@
         <div class="spacer"></div>
         <button class="btn ghost" id="btn-cancel">Abbrechen</button>
         <button class="btn primary" id="btn-save-recipe">Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recipe detail (full-screen reading view) -->
+  <div id="recipe-view" class="recipe-view">
+    <div class="rv-bar">
+      <button class="btn ghost" id="rv-back">‹ Zurück</button>
+      <button class="btn primary" id="rv-edit">Bearbeiten</button>
+    </div>
+    <div class="rv-body">
+      <div id="rv-badges" class="badges"></div>
+      <h2 id="rv-title"></h2>
+      <div id="rv-meta" class="rv-meta"></div>
+
+      <h3 class="rv-section" id="rv-ing-head">Zutaten</h3>
+      <ul id="rv-ingredients" class="rv-ingredients"></ul>
+
+      <div id="rv-instructions-wrap">
+        <h3 class="rv-section">Zubereitung</h3>
+        <div id="rv-instructions" class="rv-instructions"></div>
+      </div>
+
+      <div id="rv-notes-wrap">
+        <h3 class="rv-section">Tipp</h3>
+        <div id="rv-notes" class="rv-notes"></div>
       </div>
     </div>
   </div>

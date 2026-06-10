@@ -72,9 +72,11 @@ Seed-Rezepte werden nur angelegt, wenn die `recipes`-Tabelle leer ist.
 5. SQLite mit `PRAGMA foreign_keys = ON`; Zutaten hängen per `ON DELETE CASCADE` am Rezept.
 
 ## Datenmodell (SQLite)
-- `recipes(id, name, name_de, category, servings, notes, notes_de, food_group)`
-  – `name`/`notes` sind kanonisch (IT bei Atlas-Importen); `name_de`/`notes_de` optional für DE.
-  `food_group` ∈ {carne, pesce, uova, legumi, formaggi, ''} (für die Häufigkeits-Leiste).
+- `recipes(id, name, name_de, category, servings, notes, notes_de, instructions,
+  instructions_de, food_group)` – `name`/`notes`/`instructions` kanonisch (IT bei Atlas-Importen);
+  `*_de` optional für DE. `instructions` = mehrzeilige Zubereitung. `food_group` ∈ {carne, pesce,
+  uova, legumi, formaggi, ''} (für die Häufigkeits-Leiste). Klick auf eine Rezeptkarte öffnet die
+  **Vollbild-Leseansicht** (`#recipe-view`); Bearbeiten nur über den „Bearbeiten"-Button.
 - `ingredients(id, recipe_id→recipes, name, name_de, amount, unit, aisle, position)`
 - `plan(id, recipe_id→recipes NULLABLE, portions, day, meal, label)` – `day` = `mon..sun`,
   `meal` ∈ {colazione, pranzo, cena, merenda}. **`recipe_id` nullable**: ist es NULL, ist der

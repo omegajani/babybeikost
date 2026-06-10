@@ -204,6 +204,8 @@ def init_db() -> None:
         _ensure_column(conn, "recipes", "name_de", "TEXT DEFAULT ''")
         _ensure_column(conn, "recipes", "notes_de", "TEXT DEFAULT ''")
         _ensure_column(conn, "recipes", "food_group", "TEXT DEFAULT ''")
+        _ensure_column(conn, "recipes", "instructions", "TEXT DEFAULT ''")
+        _ensure_column(conn, "recipes", "instructions_de", "TEXT DEFAULT ''")
         _ensure_column(conn, "ingredients", "name_de", "TEXT DEFAULT ''")
         _ensure_column(conn, "plan", "meal", "TEXT DEFAULT ''")
         _migrate_plan_table(conn)
@@ -282,6 +284,8 @@ class RecipeIn(BaseModel):
     servings: float = 1
     notes: str = ""
     notes_de: str = ""
+    instructions: str = ""
+    instructions_de: str = ""
     food_group: str = ""
     ingredients: list[IngredientIn] = []
 
@@ -352,6 +356,8 @@ def recipe_to_dict(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
         "servings": row["servings"],
         "notes": row["notes"],
         "notes_de": row["notes_de"] or "",
+        "instructions": row["instructions"] or "",
+        "instructions_de": row["instructions_de"] or "",
         "food_group": row["food_group"] or "",
         "ingredients": [dict(i) for i in ings],
     }
@@ -377,10 +383,10 @@ def create_recipe(data: RecipeIn):
         raise HTTPException(400, "Name fehlt")
     with closing(connect()) as conn, conn:
         cur = conn.execute(
-            "INSERT INTO recipes (name, name_de, category, servings, notes, notes_de, food_group) "
-            "VALUES (?,?,?,?,?,?,?)",
+            "INSERT INTO recipes (name, name_de, category, servings, notes, notes_de, "
+            "instructions, instructions_de, food_group) VALUES (?,?,?,?,?,?,?,?,?)",
             (data.name.strip(), data.name_de.strip(), data.category, max(data.servings, 0.1),
-             data.notes, data.notes_de, data.food_group),
+             data.notes, data.notes_de, data.instructions, data.instructions_de, data.food_group),
         )
         rid = cur.lastrowid
         _save_ingredients(conn, rid, data.ingredients)
@@ -395,9 +401,9 @@ def update_recipe(rid: int, data: RecipeIn):
             raise HTTPException(404, "Rezept nicht gefunden")
         conn.execute(
             "UPDATE recipes SET name=?, name_de=?, category=?, servings=?, notes=?, "
-            "notes_de=?, food_group=? WHERE id=?",
+            "notes_de=?, instructions=?, instructions_de=?, food_group=? WHERE id=?",
             (data.name.strip(), data.name_de.strip(), data.category, max(data.servings, 0.1),
-             data.notes, data.notes_de, data.food_group, rid),
+             data.notes, data.notes_de, data.instructions, data.instructions_de, data.food_group, rid),
         )
         conn.execute("DELETE FROM ingredients WHERE recipe_id=?", (rid,))
         _save_ingredients(conn, rid, data.ingredients)
@@ -885,6 +891,17 @@ def delete_reaction(rid: int):
 # --------------------------------------------------------------------------
 # Frontend
 # --------------------------------------------------------------------------
+@app.middleware("http")
+async def no_cache_frontend(request, call_next):
+    """Make the browser revalidate the page + static assets so updates show up
+    immediately after a rebuild (otherwise an old cached app.js/css lingers)."""
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.startswith("/static"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
+
+
 @app.get("/")
 def index():
     return FileResponse(STATIC_DIR / "index.html")
