@@ -7,8 +7,17 @@ Selbst gehostetes Tool für die Beikost-Phase eines Babys: Rezepte verwalten →
 Wochenplan zusammenstellen → automatische, aggregierte Einkaufsliste. Läuft als
 **lokales Home-Assistant-Add-on** (Ingress-Panel in der Seitenleiste).
 
-**Status:** v0.3. Auf v0.1/v0.2 aufbauend (Rezept-CRUD, Einkaufsliste, zweisprachige Inhalte
-IT/DE, Atlas-Menü-Import aus *L'atlante dello svezzamento* S. 232, Häufigkeits-Leiste):
+**Status:** v0.3. Auf v0.1/v0.2 aufbauend (Rezept-CRUD, Einkaufsliste, Atlas-Menü-Import aus
+*L'atlante dello svezzamento* S. 232, Häufigkeits-Leiste):
+
+> **Sprache:** Die App ist aktuell **einsprachig Deutsch**. Der Sprach-Umschalter und die
+> IT/DE-Doppelfelder sind aus der UI entfernt; `LANG` steht fest auf `"de"` (Anzeige =
+> `*_de` sonst kanonisch). Die zweisprachigen DB-Spalten (`name_de`, `notes_de`,
+> `instructions_de`, ingredient `name_de`) und die Atlas-IT/DE-Daten **bleiben erhalten** für
+> die spätere echte Mehrsprachigkeit (Phase B). Beim Speichern eines Eintrags wird sein
+> kanonisches Feld gesetzt und die `*_de`-Felder geleert (unbearbeitete Atlas-Rezepte behalten
+> IT+DE). Wiederaufbau geplant in **Phase B** (siehe Roadmap).
+
 - **Wochenplan als Ein-Tag-Ansicht** (nicht mehr 7-Spalten-Raster): Kopfzeile `‹ Wochentag ›`
   (Pfeile + Wischen, Default = heute), je Mahlzeit **genau ein Gericht**; Klick auf den Slot →
   Rezept auswählen / **per Hand (Freitext)** eintragen / löschen. Plan-Einträge dürfen jetzt

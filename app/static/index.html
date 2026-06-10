@@ -149,12 +149,8 @@
       </div>
       <div class="modal-body">
         <div class="field">
-          <label>Name (Italienisch)</label>
-          <input type="text" id="r-name" placeholder="z. B. Crema di zucca" />
-        </div>
-        <div class="field">
-          <label>Name (Deutsch, optional)</label>
-          <input type="text" id="r-name-de" placeholder="z. B. Kürbiscreme" />
+          <label>Name</label>
+          <input type="text" id="r-name" placeholder="z. B. Kürbiscreme" />
         </div>
         <div class="row">
           <div class="field grow">
@@ -174,20 +170,12 @@
           <select id="r-food-group"></select>
         </div>
         <div class="field">
-          <label>Notizen (Italienisch)</label>
+          <label>Notizen</label>
           <input type="text" id="r-notes" placeholder="optional" />
         </div>
         <div class="field">
-          <label>Notizen (Deutsch, optional)</label>
-          <input type="text" id="r-notes-de" placeholder="optional" />
-        </div>
-        <div class="field">
-          <label>Zubereitung (Italienisch)</label>
+          <label>Zubereitung</label>
           <textarea id="r-instructions" rows="4" placeholder="Schritt für Schritt …"></textarea>
-        </div>
-        <div class="field">
-          <label>Zubereitung (Deutsch, optional)</label>
-          <textarea id="r-instructions-de" rows="4" placeholder="optional"></textarea>
         </div>
 
         <div class="ing-head">
@@ -240,12 +228,8 @@
       </div>
       <div class="modal-body">
         <div class="field">
-          <label>Name (Italienisch)</label>
-          <input type="text" id="f-name" list="ingredient-names" placeholder="z. B. Uovo" />
-        </div>
-        <div class="field">
-          <label>Name (Deutsch, optional)</label>
-          <input type="text" id="f-name-de" placeholder="z. B. Ei" />
+          <label>Name</label>
+          <input type="text" id="f-name" list="ingredient-names" placeholder="z. B. Ei" />
         </div>
         <div class="row">
           <div class="field grow">
@@ -300,15 +284,7 @@
         <button class="icon-btn" id="settings-close">✕</button>
       </div>
       <div class="modal-body">
-        <div class="field">
-          <label>Anzeige-Sprache</label>
-          <div class="lang-toggle" id="lang-toggle">
-            <button type="button" data-lang="it">IT</button>
-            <button type="button" data-lang="de">DE</button>
-          </div>
-        </div>
-
-        <div class="settings-section">
+        <div class="settings-section first">
           <div class="settings-section-title">Häufigkeit pro Woche</div>
           <p class="hint" style="margin:0 0 8px">Richtwerte für die Lebensmittelgruppen im Wochenplan (min–max).</p>
           <div id="freq-settings"></div>

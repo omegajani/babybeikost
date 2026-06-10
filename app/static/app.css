@@ -359,6 +359,7 @@ input:focus, select:focus { outline: 2px solid #f1c4b2; border-color: var(--acce
 }
 .settings-btn:hover { background: #fff7f1; }
 .settings-section { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 2px; }
+.settings-section.first { border-top: none; padding-top: 0; margin-top: 0; }
 .settings-section-title { font-family: "Fraunces", serif; font-weight: 600; font-size: 16px; color: var(--accent-ink); margin-bottom: 8px; }
 .freq-set-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
 .freq-set-row .freq-dot { width: 11px; height: 11px; border-radius: 50%; background: var(--fg); flex: 0 0 auto; }

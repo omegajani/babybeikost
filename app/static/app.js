@@ -18,7 +18,7 @@ let ALLERGENS = [];
 let SEVERITIES = [];
 let REOFFER_DAYS = 3;
 let FOODS = [];
-let LANG = "it";            // display language for dish/ingredient names
+let LANG = "de";            // single display language (Mehrsprachigkeit später, Phase B)
 let editingId = null;
 let editingFood = null;     // food being edited in the food modal
 
@@ -74,28 +74,11 @@ function switchView(name) {
   if (name === "allergens") loadFoods();
 }
 
-// ---------------- Language toggle ----------------
-function syncLangToggle() {
-  document.querySelectorAll("#lang-toggle button").forEach((b) =>
-    b.classList.toggle("active", b.dataset.lang === LANG));
-}
-async function setLang(lang) {
-  if (lang === LANG) return;
-  LANG = lang;
-  syncLangToggle();
-  try { await api("settings", { method: "POST", body: JSON.stringify({ key: "content_lang", value: lang }) }); }
-  catch (e) { /* keep UI responsive even if persisting fails */ }
-  // Re-render everything that shows names.
-  renderRecipes();
-  fillRecipeSelect();
-  if ($("#recipe-view").classList.contains("open") && currentViewRecipe) openRecipeView(currentViewRecipe);
-  const active = document.querySelector(".view.active");
-  if (active && active.id === "view-plan") renderDay();
-  if (active && active.id === "view-shopping") renderShopping();
-  if (active && active.id === "view-allergens") renderAllergens();
-}
-document.querySelectorAll("#lang-toggle button").forEach((b) =>
-  b.addEventListener("click", () => setLang(b.dataset.lang)));
+// NOTE: Die App ist vorerst einsprachig (Deutsch). Der Sprach-Umschalter und die
+// IT/DE-Doppelfelder wurden entfernt; LANG steht fest auf "de", sodass tName/tNotes/tInstr
+// die deutsche Übersetzung (sonst den kanonischen Namen) zeigen. Die zweisprachigen
+// DB-Spalten (name_de …) und Atlas-Übersetzungen bleiben für die spätere echte
+// Mehrsprachigkeit (Phase B) erhalten – beim Speichern werden die *_de-Felder nur geleert.
 
 // ---------------- Recipes ----------------
 async function loadRecipes() {
@@ -151,7 +134,7 @@ function fillFoodGroupSelect() {
   sel.innerHTML = "";
   const none = el("option"); none.value = ""; none.textContent = "—"; sel.appendChild(none);
   FOOD_GROUPS.forEach((g) => {
-    const o = el("option"); o.value = g.key; o.textContent = `${g.de} / ${g.it}`; sel.appendChild(o);
+    const o = el("option"); o.value = g.key; o.textContent = g.de; sel.appendChild(o);
   });
 }
 
@@ -159,15 +142,12 @@ function fillFoodGroupSelect() {
 function openModal(recipe) {
   editingId = recipe ? recipe.id : null;
   $("#modal-title").textContent = recipe ? "Rezept bearbeiten" : "Neues Rezept";
-  $("#r-name").value = recipe ? recipe.name : "";
-  $("#r-name-de").value = recipe ? (recipe.name_de || "") : "";
+  $("#r-name").value = recipe ? tName(recipe) : "";
   $("#r-category").value = recipe ? recipe.category : "Mittag";
   $("#r-food-group").value = recipe ? (recipe.food_group || "") : "";
   $("#r-servings").value = recipe ? recipe.servings : 1;
-  $("#r-notes").value = recipe ? recipe.notes : "";
-  $("#r-notes-de").value = recipe ? (recipe.notes_de || "") : "";
-  $("#r-instructions").value = recipe ? (recipe.instructions || "") : "";
-  $("#r-instructions-de").value = recipe ? (recipe.instructions_de || "") : "";
+  $("#r-notes").value = recipe ? tNotes(recipe) : "";
+  $("#r-instructions").value = recipe ? tInstr(recipe) : "";
   $("#btn-delete-recipe").style.display = recipe ? "" : "none";
   $("#ing-rows").innerHTML = "";
   const ings = recipe && recipe.ingredients.length ? recipe.ingredients : [{ name: "", amount: "", unit: "", aisle: "Obst & Gemüse" }];
@@ -179,19 +159,17 @@ function closeModal() { $("#modal").classList.remove("open"); }
 function addIngRow(ing = {}) {
   const wrap = el("div", "ing-row-wrap");
   const top = el("div", "ing-row-top");
-  const name = el("input"); name.placeholder = "Zutat (IT)"; name.value = ing.name || ""; name.dataset.k = "name";
+  const name = el("input"); name.placeholder = "Zutat"; name.value = ing.name_de || ing.name || ""; name.dataset.k = "name";
   const amount = el("input"); amount.type = "number"; amount.step = "any"; amount.placeholder = "Menge";
   amount.value = ing.amount ?? ""; amount.dataset.k = "amount";
   const unit = el("input"); unit.placeholder = "Einheit"; unit.value = ing.unit || ""; unit.dataset.k = "unit";
   const del = el("button", "icon-btn", "✕");
   del.addEventListener("click", () => wrap.remove());
   top.append(name, amount, unit, del);
-  const nameDe = el("input", "ing-name-de"); nameDe.placeholder = "Zutat (DE, optional)";
-  nameDe.value = ing.name_de || ""; nameDe.dataset.k = "name_de";
   const aisle = el("select", "aisle-select"); aisle.dataset.k = "aisle";
   AISLES.forEach((a) => { const o = el("option"); o.textContent = a; aisle.appendChild(o); });
   aisle.value = ing.aisle || "Sonstiges";
-  wrap.append(top, nameDe, aisle);
+  wrap.append(top, aisle);
   $("#ing-rows").appendChild(wrap);
 }
 
@@ -200,23 +178,25 @@ function collectIngredients() {
     const get = (k) => w.querySelector(`[data-k="${k}"]`).value;
     const amt = get("amount");
     return {
-      name: get("name"), name_de: get("name_de"),
+      name: get("name"), name_de: "",
       amount: amt === "" ? null : parseFloat(amt), unit: get("unit"), aisle: get("aisle"),
     };
   }).filter((i) => i.name.trim());
 }
 
 async function saveRecipe() {
+  // Single-language (Deutsch): das eine Feld füllt den kanonischen Wert; die *_de-Felder
+  // werden geleert (Phase-B-Daten unangetastet, bis ein Eintrag bewusst bearbeitet wird).
   const body = {
     name: $("#r-name").value.trim(),
-    name_de: $("#r-name-de").value.trim(),
+    name_de: "",
     category: $("#r-category").value,
     food_group: $("#r-food-group").value,
     servings: parseFloat($("#r-servings").value) || 1,
     notes: $("#r-notes").value.trim(),
-    notes_de: $("#r-notes-de").value.trim(),
+    notes_de: "",
     instructions: $("#r-instructions").value.trim(),
-    instructions_de: $("#r-instructions-de").value.trim(),
+    instructions_de: "",
     ingredients: collectIngredients(),
   };
   if (!body.name) { toast("Name fehlt"); return; }
@@ -579,18 +559,19 @@ function renderReofferList() {
 function renderQuickpick() {
   const wrap = $("#allergen-quickpick");
   wrap.innerHTML = "";
-  // canonical names already tracked (to mark allergens as done)
-  const tracked = new Set(FOODS.map((f) => f.name.toLowerCase()));
+  // Match by the displayed (German) name to mark allergens as done.
+  const tracked = new Set(FOODS.map((f) => tName(f).toLowerCase()));
   ALLERGENS.forEach((a) => {
-    const done = tracked.has(a.it.toLowerCase());
+    const label = allergenLabel(a);
+    const done = tracked.has(label.toLowerCase());
     const chip = el("button", "qp-chip" + (done ? " done" : ""));
-    chip.textContent = allergenLabel(a) + (done ? " ✓" : "");
+    chip.textContent = label + (done ? " ✓" : "");
     chip.addEventListener("click", () => {
       if (done) {
-        const f = FOODS.find((x) => x.name.toLowerCase() === a.it.toLowerCase());
+        const f = FOODS.find((x) => tName(x).toLowerCase() === label.toLowerCase());
         if (f) openFoodModal(f);
       } else {
-        openFoodModal(null, { name: a.it, name_de: a.de, allergen: true });
+        openFoodModal(null, { name: label, allergen: true });
       }
     });
     wrap.appendChild(chip);
@@ -624,9 +605,8 @@ function renderFoodList() {
 function openFoodModal(food, prefill) {
   editingFood = food || null;
   const src = food || prefill || {};
-  $("#food-modal-title").textContent = food ? tName(food) : (LANG === "de" ? "Neues Lebensmittel" : "Nuovo alimento");
-  $("#f-name").value = src.name || "";
-  $("#f-name-de").value = src.name_de || "";
+  $("#food-modal-title").textContent = food ? tName(food) : "Neues Lebensmittel";
+  $("#f-name").value = food ? tName(food) : (src.name || "");
   $("#f-status").value = src.status || "";
   $("#f-allergen").checked = !!src.allergen;
   $("#f-first-date").value = (food && food.first_date) || todayISO();
@@ -665,7 +645,7 @@ function renderReactionRows() {
 function foodBody() {
   return {
     name: $("#f-name").value.trim(),
-    name_de: $("#f-name-de").value.trim(),
+    name_de: "",
     allergen: $("#f-allergen").checked,
     status: $("#f-status").value,
     first_date: $("#f-first-date").value,
@@ -735,7 +715,6 @@ function openSettings() {
     wrap.appendChild(row);
   });
   $("#set-reoffer").value = REOFFER_DAYS;
-  syncLangToggle();
   $("#settings-modal").classList.add("open");
 }
 function closeSettings() { $("#settings-modal").classList.remove("open"); }
@@ -791,8 +770,6 @@ function fmt(n) { return Number.isInteger(n) ? n : Number(n).toFixed(1); }
     ALLERGENS = meta.allergens || [];
     SEVERITIES = meta.severities || [];
     REOFFER_DAYS = meta.reoffer_days ?? 3;
-    LANG = meta.content_lang || "it";
-    syncLangToggle();
     fillFoodGroupSelect();
     fillSeveritySelect();
     const itemAisle = $("#item-aisle");
