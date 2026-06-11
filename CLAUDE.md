@@ -10,13 +10,13 @@ Wochenplan zusammenstellen → automatische, aggregierte Einkaufsliste. Läuft a
 **Status:** v0.3. Auf v0.1/v0.2 aufbauend (Rezept-CRUD, Einkaufsliste, Atlas-Menü-Import aus
 *L'atlante dello svezzamento* S. 232, Häufigkeits-Leiste):
 
-> **Sprache:** Die App ist aktuell **einsprachig Deutsch**. Der Sprach-Umschalter und die
-> IT/DE-Doppelfelder sind aus der UI entfernt; `LANG` steht fest auf `"de"` (Anzeige =
-> `*_de` sonst kanonisch). Die zweisprachigen DB-Spalten (`name_de`, `notes_de`,
-> `instructions_de`, ingredient `name_de`) und die Atlas-IT/DE-Daten **bleiben erhalten** für
-> die spätere echte Mehrsprachigkeit (Phase B). Beim Speichern eines Eintrags wird sein
-> kanonisches Feld gesetzt und die `*_de`-Felder geleert (unbearbeitete Atlas-Rezepte behalten
-> IT+DE). Wiederaufbau geplant in **Phase B** (siehe Roadmap).
+> **Sprache:** Die App ist **einsprachig Deutsch**. Der Sprach-Umschalter und die IT/DE-Doppel-
+> felder sind aus der UI entfernt; `LANG` steht fest auf `"de"`. **Deutsch ist die kanonische
+> Sprache überall**: `atlas.py` liefert deutsche `name`/`notes`/Zutaten (`*_de`=leer), und eine
+> einmalige Migration `_consolidate_to_de` (geschützt durch Settings-Flag `de_consolidated`) hat
+> die bestehenden Geräte-Daten von IT auf DE umgezogen (`name=name_de`, `*_de` geleert). Es gibt
+> also **kein Italienisch mehr** in Daten oder Anzeige. Die `*_de`-Spalten bleiben im Schema (leer)
+> für eine spätere echte Mehrsprachigkeit (**Phase B**, würde dann aus dem Deutschen übersetzen).
 
 - **Wochenplan als Ein-Tag-Ansicht** (nicht mehr 7-Spalten-Raster): Kopfzeile `‹ Wochentag ›`
   (Pfeile + Wischen, Default = heute), je Mahlzeit **genau ein Gericht**; Klick auf den Slot →
@@ -82,8 +82,8 @@ Seed-Rezepte werden nur angelegt, wenn die `recipes`-Tabelle leer ist.
 
 ## Datenmodell (SQLite)
 - `recipes(id, name, name_de, category, servings, notes, notes_de, instructions,
-  instructions_de, food_group)` – `name`/`notes`/`instructions` kanonisch (IT bei Atlas-Importen);
-  `*_de` optional für DE. `instructions` = mehrzeilige Zubereitung. `food_group` ∈ {carne, pesce,
+  instructions_de, food_group)` – `name`/`notes`/`instructions` kanonisch (**Deutsch**, siehe
+  Sprach-Hinweis oben); `*_de` aktuell leer (für Phase B). `instructions` = mehrzeilige Zubereitung. `food_group` ∈ {carne, pesce,
   uova, legumi, formaggi, ''} (für die Häufigkeits-Leiste). Klick auf eine Rezeptkarte öffnet die
   **Vollbild-Leseansicht** (`#recipe-view`); Bearbeiten nur über den „Bearbeiten"-Button.
 - `ingredients(id, recipe_id→recipes, name, name_de, amount, unit, aisle, position)`

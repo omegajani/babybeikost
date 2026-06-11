@@ -138,6 +138,30 @@ def _migrate_plan_table(conn) -> None:
     )
 
 
+def _consolidate_to_de(conn) -> None:
+    """One-time: make German the canonical language across all data.
+
+    Copies the German text (`*_de`) into the canonical columns where present and
+    clears the `*_de` fields, so the database holds no leftover Italian. Guarded by
+    a settings flag so a later real multi-language phase (B) is not clobbered.
+    """
+    row = conn.execute("SELECT value FROM settings WHERE key='de_consolidated'").fetchone()
+    if row and row["value"]:
+        return
+    conn.execute(
+        "UPDATE recipes SET name=COALESCE(NULLIF(name_de,''), name), "
+        "notes=COALESCE(NULLIF(notes_de,''), notes), "
+        "instructions=COALESCE(NULLIF(instructions_de,''), instructions), "
+        "name_de='', notes_de='', instructions_de=''"
+    )
+    conn.execute("UPDATE ingredients SET name=COALESCE(NULLIF(name_de,''), name), name_de=''")
+    conn.execute("UPDATE foods_introduced SET name=COALESCE(NULLIF(name_de,''), name), name_de=''")
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES ('de_consolidated','1') "
+        "ON CONFLICT(key) DO UPDATE SET value='1'"
+    )
+
+
 def init_db() -> None:
     Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     with closing(connect()) as conn, conn:
@@ -209,6 +233,7 @@ def init_db() -> None:
         _ensure_column(conn, "ingredients", "name_de", "TEXT DEFAULT ''")
         _ensure_column(conn, "plan", "meal", "TEXT DEFAULT ''")
         _migrate_plan_table(conn)
+        _consolidate_to_de(conn)
     seed_if_empty()
 
 

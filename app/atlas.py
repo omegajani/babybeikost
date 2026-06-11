@@ -19,14 +19,19 @@ SO = "Sonstiges"
 
 
 def _r(name, name_de, food_group, notes, notes_de, ings):
-    """Kompakter Rezept-Konstruktor. `ings` = Liste aus (it, de, aisle)."""
+    """Kompakter Rezept-Konstruktor. `ings` = Liste aus (it, de, aisle).
+
+    Die App ist einsprachig Deutsch: der deutsche Text ist der kanonische `name`
+    (bzw. `notes`), die `*_de`-Felder bleiben leer. Die italienischen Originale aus
+    den Argumenten werden nur als Fallback genutzt, falls keine Übersetzung vorliegt.
+    """
     return {
-        "name": name,
-        "name_de": name_de,
+        "name": name_de or name,
+        "name_de": "",
         "food_group": food_group,
-        "notes": notes,
-        "notes_de": notes_de,
-        "ingredients": [{"name": it, "name_de": de, "aisle": a} for it, de, a in ings],
+        "notes": notes_de or notes,
+        "notes_de": "",
+        "ingredients": [{"name": de or it, "name_de": "", "aisle": a} for it, de, a in ings],
     }
 
 
