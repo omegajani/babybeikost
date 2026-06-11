@@ -37,8 +37,8 @@ AISLES = [
 MEALS = [
     {"key": "colazione", "it": "Colazione", "de": "Frühstück"},
     {"key": "pranzo", "it": "Pranzo", "de": "Mittag"},
-    {"key": "cena", "it": "Cena", "de": "Abendessen"},
     {"key": "merenda", "it": "Merenda e spuntini", "de": "Snack & Zwischen"},
+    {"key": "cena", "it": "Cena", "de": "Abendessen"},
 ]
 
 # Weekdays as stable keys, with full + short labels per language.
