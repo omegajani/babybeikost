@@ -293,6 +293,32 @@ WEEKS = {1: WEEK1, 2: WEEK2}
 DAY_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 
+def _assign_categories() -> None:
+    """Derive a recipe category from each dish's role in the week plans.
+
+    Breakfasts → Frühstück, snacks → Snack; mains get Mittag if they appear as
+    pranzo anywhere, otherwise Abend. Keeps the Rezepte tab grouping meaningful.
+    """
+    breakfast_slugs = {s for lst in BREAKFASTS.values() for s in lst}
+    snack_slugs = {s for lst in SNACKS.values() for s in lst}
+    pranzo_slugs = {m["pranzo"] for week in WEEKS.values() for m in week.values()}
+    cena_slugs = {m["cena"] for week in WEEKS.values() for m in week.values()}
+    for slug, rec in RECIPES.items():
+        if slug in breakfast_slugs:
+            rec["category"] = "Frühstück"
+        elif slug in snack_slugs:
+            rec["category"] = "Snack"
+        elif slug in pranzo_slugs:
+            rec["category"] = "Mittag"
+        elif slug in cena_slugs:
+            rec["category"] = "Abend"
+        else:
+            rec["category"] = ""
+
+
+_assign_categories()
+
+
 def week_plan_rows(week: int):
     """Liefert die zu setzenden Plan-Zeilen für eine Beispielwoche.
 

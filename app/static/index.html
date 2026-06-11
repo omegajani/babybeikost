@@ -30,7 +30,7 @@
           <button class="btn primary" id="btn-new-recipe">+ Neu</button>
         </div>
         <p class="hint">Beispielrezepte für ca. 9 Monate – passe Mengen an euer Kind an.</p>
-        <div id="recipe-list" class="card-grid"></div>
+        <div id="recipe-list"></div>
       </section>
 
       <!-- PLAN -->
@@ -64,14 +64,17 @@
             <button class="icon-btn" id="cell-picker-close">✕</button>
           </div>
           <div class="modal-body">
-            <div class="field">
-              <label>Rezept auswählen</label>
-              <select id="cell-recipe"></select>
+            <div class="row">
+              <div class="field grow">
+                <label>Rezept auswählen</label>
+                <input type="search" id="cell-search" placeholder="Rezept suchen …" autocomplete="off" />
+              </div>
+              <div class="field small">
+                <label>Portionen</label>
+                <input type="number" id="cell-portions" value="1" min="0.5" step="0.5" />
+              </div>
             </div>
-            <div class="field small">
-              <label>Portionen</label>
-              <input type="number" id="cell-portions" value="1" min="0.5" step="0.5" />
-            </div>
+            <div id="cell-recipe-list" class="cell-list"></div>
             <div class="or-divider"><span>oder</span></div>
             <div class="field">
               <label>Per Hand eintragen</label>

@@ -84,7 +84,6 @@ function switchView(name) {
 async function loadRecipes() {
   RECIPES = await api("recipes");
   renderRecipes();
-  fillRecipeSelect();
   fillIngredientDatalist();
 }
 
@@ -97,6 +96,25 @@ function fillIngredientDatalist() {
   [...names].sort().forEach((n) => { const o = el("option"); o.value = n; dl.appendChild(o); });
 }
 
+// Fixed display order of recipe categories; "" (none) renders last as "Sonstige".
+const CATEGORY_ORDER = ["Frühstück", "Mittag", "Abend", "Snack", ""];
+
+function categoryGroups(recipes) {
+  // -> [ [label, sortedRecipes], ... ] in CATEGORY_ORDER, skipping empty groups.
+  const byCat = new Map(CATEGORY_ORDER.map((c) => [c, []]));
+  recipes.forEach((r) => {
+    const cat = byCat.has(r.category) ? r.category : "";
+    byCat.get(cat).push(r);
+  });
+  const out = [];
+  byCat.forEach((items, cat) => {
+    if (!items.length) return;
+    items.sort((a, b) => tName(a).localeCompare(tName(b), "de"));
+    out.push([cat || "Sonstige", items]);
+  });
+  return out;
+}
+
 function renderRecipes() {
   const wrap = $("#recipe-list");
   wrap.innerHTML = "";
@@ -104,28 +122,54 @@ function renderRecipes() {
     wrap.appendChild(el("div", "empty", "Noch keine Rezepte. Tippe auf „+ Neu“."));
     return;
   }
-  RECIPES.forEach((r) => {
-    const card = el("div", "recipe-card");
-    const g = fg(r.food_group);
-    const badge = g ? `<span class="badge fg" style="--fg:${g.color}">${esc(fgLabel(g))}</span> ` : "";
-    const cat = r.category ? `<span class="badge">${esc(r.category)}</span>` : "";
-    card.innerHTML = `<div class="badges">${badge}${cat}</div><h3>${esc(tName(r))}</h3>
-      <div class="meta">${r.ingredients.length} Zutaten · ${fmt(r.servings)} Portion(en)</div>`;
-    card.addEventListener("click", () => openRecipeView(r));
-    wrap.appendChild(card);
+  categoryGroups(RECIPES).forEach(([label, items]) => {
+    wrap.appendChild(el("div", "recipe-group-title", esc(label)));
+    const grid = el("div", "card-grid");
+    items.forEach((r) => {
+      const card = el("div", "recipe-card");
+      const g = fg(r.food_group);
+      const badge = g ? `<span class="badge fg" style="--fg:${g.color}">${esc(fgLabel(g))}</span> ` : "";
+      card.innerHTML = `${badge ? `<div class="badges">${badge}</div>` : ""}<h3>${esc(tName(r))}</h3>
+        <div class="meta">${r.ingredients.length} Zutaten · ${fmt(r.servings)} Portion(en)</div>`;
+      card.addEventListener("click", () => openRecipeView(r));
+      grid.appendChild(card);
+    });
+    wrap.appendChild(grid);
   });
 }
 
-function fillRecipeSelect() {
-  // Used by the cell picker.
-  const sel = $("#cell-recipe");
-  if (!sel) return;
-  sel.innerHTML = "";
-  RECIPES.forEach((r) => {
-    const o = el("option");
-    o.value = r.id;
-    o.textContent = tName(r);
-    sel.appendChild(o);
+// Which recipe category belongs to which meal slot (used to sort the picker).
+const MEAL_TO_CATEGORY = { colazione: "Frühstück", pranzo: "Mittag", merenda: "Snack", cena: "Abend" };
+
+function renderCellList() {
+  const wrap = $("#cell-recipe-list");
+  if (!wrap || !slotCtx) return;
+  wrap.innerHTML = "";
+  const q = ($("#cell-search").value || "").trim().toLowerCase();
+  const filtered = q ? RECIPES.filter((r) => tName(r).toLowerCase().includes(q)) : RECIPES;
+  if (!filtered.length) {
+    wrap.appendChild(el("div", "empty small", "Kein Rezept gefunden"));
+    return;
+  }
+  // Matching category first, rest in CATEGORY_ORDER.
+  const preferred = MEAL_TO_CATEGORY[slotCtx.meal] || "";
+  const groups = categoryGroups(filtered).sort((a, b) =>
+    (a[0] === preferred ? -1 : 0) - (b[0] === preferred ? -1 : 0));
+  const selectedId = slotCtx.entry && !slotCtx.entry.manual ? slotCtx.entry.recipe_id : null;
+  groups.forEach(([label, items]) => {
+    wrap.appendChild(el("div", "cell-group-title", esc(label)));
+    items.forEach((r) => {
+      const row = el("button", "cell-row" + (r.id === selectedId ? " selected" : ""));
+      const g = fg(r.food_group);
+      row.innerHTML = `${g ? `<span class="fg-dot" style="--fg:${g.color}"></span>` : ""}<span>${esc(tName(r))}</span>`;
+      // One tap = pick & save with the current portions value.
+      row.addEventListener("click", () => setSlot({
+        day: slotCtx.day, meal: slotCtx.meal,
+        portions: parseFloat($("#cell-portions").value) || 1,
+        recipe_id: r.id,
+      }));
+      wrap.appendChild(row);
+    });
   });
 }
 
@@ -374,10 +418,10 @@ function renderFreqBar() {
 // ---- Slot editor (recipe / free text / delete) ----
 function openSlot(dayKey, mealObj, entry) {
   slotCtx = { day: dayKey, meal: mealObj.key, entry };
-  fillRecipeSelect();
+  $("#cell-search").value = "";
   $("#cell-label").value = (entry && entry.manual) ? (entry.name || "") : "";
   $("#cell-portions").value = (entry && entry.portions) ? entry.portions : 1;
-  if (entry && !entry.manual && entry.recipe_id) $("#cell-recipe").value = String(entry.recipe_id);
+  renderCellList();
   $("#cell-picker-title").textContent = `${mealLabel(mealObj)} · ${dayLabel(DAYS[currentDay], false)}`;
   $("#cell-picker-delete").style.display = entry ? "" : "none";
   $("#cell-picker").classList.add("open");
@@ -390,21 +434,17 @@ async function setSlot(body) {
   renderDay();
 }
 
+$("#cell-search").addEventListener("input", renderCellList);
 $("#cell-picker-close").addEventListener("click", closeSlot);
 $("#cell-picker-cancel").addEventListener("click", closeSlot);
 $("#cell-picker").addEventListener("click", (e) => { if (e.target.id === "cell-picker") closeSlot(); });
+// "Speichern" persists the free-text entry; recipes save directly on tap in the list.
 $("#cell-picker-add").addEventListener("click", async () => {
   if (!slotCtx) return;
   const label = $("#cell-label").value.trim();
   const portions = parseFloat($("#cell-portions").value) || 1;
-  const base = { day: slotCtx.day, meal: slotCtx.meal, portions };
-  if (label) {
-    await setSlot({ ...base, label });
-  } else {
-    const rid = parseInt($("#cell-recipe").value);
-    if (!rid) { toast("Rezept wählen oder per Hand eintragen"); return; }
-    await setSlot({ ...base, recipe_id: rid });
-  }
+  if (!label) { toast("Rezept antippen oder per Hand eintragen"); return; }
+  await setSlot({ day: slotCtx.day, meal: slotCtx.meal, portions, label });
 });
 $("#cell-picker-delete").addEventListener("click", async () => {
   if (!slotCtx) return;

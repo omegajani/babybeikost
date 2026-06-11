@@ -745,16 +745,25 @@ def set_day_note(data: DayNoteIn):
 # Atlas import + example weeks
 # --------------------------------------------------------------------------
 def _import_atlas(conn) -> int:
-    """Insert atlas recipes that are not present yet (matched by canonical name)."""
+    """Insert atlas recipes that are not present yet (matched by canonical name).
+
+    Also backfills the category on already-imported atlas recipes that still have
+    an empty one (user-set categories are never touched).
+    """
     existing = {r["name"] for r in conn.execute("SELECT name FROM recipes").fetchall()}
     added = 0
     for rec in atlas.RECIPES.values():
         if rec["name"] in existing:
+            if rec.get("category"):
+                conn.execute(
+                    "UPDATE recipes SET category=? WHERE name=? AND category=''",
+                    (rec["category"], rec["name"]),
+                )
             continue
         cur = conn.execute(
             "INSERT INTO recipes (name, name_de, category, servings, notes, notes_de, food_group) "
             "VALUES (?,?,?,?,?,?,?)",
-            (rec["name"], rec["name_de"], "", 1, rec["notes"], rec["notes_de"], rec["food_group"]),
+            (rec["name"], rec["name_de"], rec.get("category", ""), 1, rec["notes"], rec["notes_de"], rec["food_group"]),
         )
         rid = cur.lastrowid
         for pos, ing in enumerate(rec["ingredients"]):

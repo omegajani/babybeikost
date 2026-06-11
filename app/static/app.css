@@ -275,6 +275,36 @@ input:focus, select:focus { outline: 2px solid #f1c4b2; border-color: var(--acce
   border: 1px solid var(--line); background: #fff;
 }
 
+/* ---- Recipe category groups ---- */
+.recipe-group-title {
+  font-family: "Fraunces", serif; font-size: 15px; font-weight: 600; color: var(--accent-ink);
+  margin: 18px 4px 10px; display: flex; align-items: center; gap: 8px;
+}
+.recipe-group-title::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+#recipe-list > .card-grid { margin-bottom: 4px; }
+
+/* ---- Slot picker: searchable recipe list ---- */
+.cell-list {
+  max-height: 38vh; overflow-y: auto; border: 1px solid var(--line);
+  border-radius: var(--radius-sm); background: #fff;
+}
+.cell-group-title {
+  position: sticky; top: 0; background: var(--bg-2); color: var(--accent-ink);
+  font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+  padding: 6px 12px; border-bottom: 1px solid var(--line);
+}
+.cell-row {
+  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+  border: none; background: transparent; cursor: pointer; font-family: inherit;
+  font-size: 15px; font-weight: 600; color: var(--ink);
+  padding: 11px 12px; border-bottom: 1px solid var(--line);
+}
+.cell-row:last-child { border-bottom: none; }
+.cell-row:hover { background: #fff7f1; }
+.cell-row.selected { background: #fdf2eb; color: var(--accent-ink); }
+.cell-row .fg-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--fg); flex: 0 0 auto; }
+.empty.small { padding: 18px; font-size: 13px; }
+
 /* compact slot/picker modal */
 .modal.compact { max-width: 420px; }
 .ing-name-de { font-size: 13px; padding: 7px 9px; }
