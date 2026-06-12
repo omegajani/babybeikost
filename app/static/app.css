@@ -119,8 +119,23 @@ input, select {
   background: #fff; border: 1px solid var(--line); border-radius: var(--radius-sm);
   padding: 10px 12px; width: 100%;
 }
+select {
+  appearance: none; -webkit-appearance: none; -moz-appearance: none;
+  padding-right: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4' fill='none' stroke='%23948b7e' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
 input:focus, select:focus { outline: 2px solid #f1c4b2; border-color: var(--accent); }
+.select-fg { position: relative; }
+.select-fg select { padding-left: 28px; }
+.select-fg .fg-dot {
+  position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+  width: 9px; height: 9px; border-radius: 50%; background: var(--fg, var(--line));
+  pointer-events: none;
+}
 .row { display: flex; gap: 10px; }
+.row > .grow { flex: 1 1 auto; min-width: 0; }
 
 /* ---- Stacked lists ---- */
 .stack { display: flex; flex-direction: column; gap: 8px; }
@@ -203,6 +218,7 @@ input:focus, select:focus { outline: 2px solid #f1c4b2; border-color: var(--acce
 .ing-rows { display: flex; flex-direction: column; gap: 8px; }
 .ing-row { display: grid; grid-template-columns: 1fr 56px 60px 34px; gap: 6px; align-items: center; }
 .ing-row input, .ing-row select { padding: 8px 9px; font-size: 14px; }
+.ing-row select { padding-right: 28px; background-position: right 6px center; }
 .ing-row .aisle-select { grid-column: 1 / 4; }
 .ing-row-wrap { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--line);
   background: var(--card); border-radius: var(--radius-sm); padding: 9px; }
@@ -396,6 +412,13 @@ input:focus, select:focus { outline: 2px solid #f1c4b2; border-color: var(--acce
 .freq-set-row .freq-set-label { flex: 1; font-weight: 700; font-size: 14px; }
 .freq-set-row input { width: 58px; text-align: center; padding: 7px 6px; }
 .freq-set-row .freq-dash { color: var(--muted); font-weight: 700; }
+.freq-set-row .freq-color {
+  width: 30px; height: 30px; padding: 0; border-radius: 50%; border: 1px solid var(--line);
+  flex: 0 0 auto; cursor: pointer; background: none;
+}
+.freq-set-row .freq-set-label-input { flex: 1; width: auto; text-align: left; font-weight: 700; font-size: 14px; }
+.freq-set-row .freq-del { flex: 0 0 auto; color: var(--muted); }
+.freq-set-row .freq-del:hover { color: #c0492f; }
 
 /* ---- Toast ---- */
 .toast {

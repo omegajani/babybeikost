@@ -27,6 +27,22 @@ Wochenplan zusammenstellen → automatische, aggregierte Einkaufsliste. Läuft a
   „erneut anbieten".
 - **Einstellungs-Panel** (⚙️ oben rechts, Modal): Häufigkeits-Richtwerte je Lebensmittelgruppe
   konfigurierbar, Erinnerungs-Schwelle (Tage), Anzeige-Sprache (IT/DE). Werte in `settings`.
+- **„Häufigkeit pro Woche" ist voll anpassbar**: die Lebensmittelgruppen-Liste (Name, Farbe,
+  Min/Max je Woche) ist im ⚙️-Panel frei editierbar (`+ Gruppe` / ✕ zum Löschen), nicht mehr nur
+  die Zielwerte. Default-Katalog erweitert um **Gemüse, Obst, Getreide** (zusätzlich zu
+  Fleisch/Fisch/Eier/Hülsenfrüchte/Milchprodukte). Rezepte bekommen ihre Lebensmittelgruppe
+  standardmäßig **automatisch** anhand der Zutaten-/Namens-Stichwörter zugewiesen
+  (`FOOD_GROUP_KEYWORDS`/`compute_food_group` in `main.py`); im Rezept-Editor lässt sich das
+  Dropdown auf eine konkrete Gruppe umstellen (= **manuelle Übersteuerung**, `food_group_auto=0`,
+  bleibt danach stabil) oder zurück auf „Automatisch" (`food_group_auto=1`, wird neu berechnet).
+  Beim Speichern des Häufigkeits-Katalogs werden alle noch-automatischen Rezepte neu getaggt.
+- **Freitext-Plan-Einträge können ein Häufigkeits-Tag bekommen**: im Slot-Editor steht neben
+  „Per Hand eintragen" ein Dropdown „Häufigkeits-Tag" (`#cell-food-group`, Werte = aktueller
+  Häufigkeits-Katalog + „—"). Der Wert wird in `plan.food_group` gespeichert (additive Spalte,
+  Default leer) und fließt wie bei Rezepten in `renderFreqBar`/die Farbpunkte ein. Für
+  Rezept-Einträge bleibt das Tag weiterhin aus `recipes.food_group` (kein Override auf
+  Plan-Ebene). Bereits vorhandene Freitext-Einträge ohne Tag lassen sich nachträglich durch
+  Öffnen des Slots + Tag wählen + Speichern versehen.
 
 Geplant/offen: **Phase B** (beliebige Sprachen statt fix IT/DE), **Phase C** LibreTranslate-
 Auto-Übersetzung, Bring-Anbindung (Liste wird weiterhin per „Kopieren" als Text exportiert).
@@ -82,21 +98,33 @@ Seed-Rezepte werden nur angelegt, wenn die `recipes`-Tabelle leer ist.
 
 ## Datenmodell (SQLite)
 - `recipes(id, name, name_de, category, servings, notes, notes_de, instructions,
-  instructions_de, food_group)` – `name`/`notes`/`instructions` kanonisch (**Deutsch**, siehe
-  Sprach-Hinweis oben); `*_de` aktuell leer (für Phase B). `instructions` = mehrzeilige Zubereitung. `food_group` ∈ {carne, pesce,
-  uova, legumi, formaggi, ''} (für die Häufigkeits-Leiste). Klick auf eine Rezeptkarte öffnet die
-  **Vollbild-Leseansicht** (`#recipe-view`); Bearbeiten nur über den „Bearbeiten"-Button.
+  instructions_de, food_group, food_group_auto)` – `name`/`notes`/`instructions` kanonisch
+  (**Deutsch**, siehe Sprach-Hinweis oben); `*_de` aktuell leer (für Phase B). `instructions` =
+  mehrzeilige Zubereitung. `food_group` = Key aus dem aktuellen Häufigkeits-Katalog (default
+  carne/pesce/uova/legumi/formaggi/verdura/frutta/cereali, oder ''). `food_group_auto` (1/0,
+  Default 1): wenn 1, wird `food_group` bei jedem Speichern aus Name+Zutaten neu berechnet
+  (`compute_food_group`); wird im Editor manuell eine Gruppe gewählt, wird `food_group_auto=0`
+  gesetzt und der Wert bleibt fix, bis wieder „Automatisch" gewählt wird. Klick auf eine
+  Rezeptkarte öffnet die **Vollbild-Leseansicht** (`#recipe-view`); Bearbeiten nur über den
+  „Bearbeiten"-Button.
 - `ingredients(id, recipe_id→recipes, name, name_de, amount, unit, aisle, position)`
-- `plan(id, recipe_id→recipes NULLABLE, portions, day, meal, label)` – `day` = `mon..sun`,
-  `meal` ∈ {colazione, pranzo, cena, merenda}. **`recipe_id` nullable**: ist es NULL, ist der
-  Eintrag ein **Freitext-Gericht** (`label`), das nicht in die Einkaufsliste einfließt.
-  Migration `_migrate_plan_table` baut die Tabelle einmalig um (SQLite kann NOT NULL nicht
-  in-place lockern). Pro `(day, meal)` genau ein Eintrag (UI-seitig via `POST /api/plan/set`).
+- `plan(id, recipe_id→recipes NULLABLE, portions, day, meal, label, food_group)` – `day` =
+  `mon..sun`, `meal` ∈ {colazione, pranzo, cena, merenda}. **`recipe_id` nullable**: ist es NULL,
+  ist der Eintrag ein **Freitext-Gericht** (`label`), das nicht in die Einkaufsliste einfließt.
+  `food_group` (additive Spalte, Default leer) trägt das Häufigkeits-Tag **nur für
+  Freitext-Einträge** (im Slot-Editor wählbar); bei Rezept-Einträgen kommt das Tag stattdessen
+  aus `recipes.food_group` und `plan.food_group` bleibt leer. Migration `_migrate_plan_table`
+  baut die Tabelle einmalig um (SQLite kann NOT NULL nicht in-place lockern). Pro `(day, meal)`
+  genau ein Eintrag (UI-seitig via `POST /api/plan/set`).
 - `manual_items(id, name, amount, unit, aisle)`
 - `checks(item_key)` – abgehakte Posten; `item_key = "<name>|<unit>"` (lowercase, **kanonischer
   Name** → stabil über Sprachwechsel).
-- `settings(key, value)` – `content_lang` (`it`/`de`), `freq_targets` (JSON `{group:{min,max}}`,
-  überschreibt die `FOOD_GROUPS`-Defaults), `reoffer_days` (Allergen-Erinnerungs-Schwelle).
+- `settings(key, value)` – `content_lang` (`it`/`de`), `food_groups_custom` (JSON-Liste
+  `[{key, de, color, min, max}]`, der voll editierbare Häufigkeits-Katalog – ist er gesetzt,
+  ersetzt er `FOOD_GROUPS` komplett; legacy `freq_targets` (`{group:{min,max}}`-Overrides auf
+  `FOOD_GROUPS`) wird nur noch als Fallback gelesen, solange `food_groups_custom` fehlt),
+  `food_groups_auto_assigned` (Migrationsflag, s. u.), `reoffer_days` (Allergen-Erinnerungs-
+  Schwelle).
 - `day_notes(day, text)` – die „Daran denken…"-Zeile pro Wochentag.
 - `foods_introduced(id, name, name_de, allergen, status, first_date)` – eingeführte Lebensmittel
   (`status` ∈ {'', 'like', 'dislike'}); `food_reactions(id, food_id→…, date, severity, note)`
@@ -104,7 +132,11 @@ Seed-Rezepte werden nur angelegt, wenn die `recipes`-Tabelle leer ist.
   berechnet (Schwelle = `reoffer_days`).
 
 Zweisprachigkeit/Konstanten leben in `main.py` (`MEALS`, `DAYS`, `FOOD_GROUPS`, `ALLERGENS`,
-`SEVERITIES`, via `GET /api/meta`). Atlas-Menüdaten (Rezepte + Wochen) in `app/atlas.py`.
+`SEVERITIES`, via `GET /api/meta`). `FOOD_GROUP_KEYWORDS` (ebenfalls `main.py`) ist die
+Stichwortliste (lowercase, ganze Wörter) für die automatische Rezept-Verschlagwortung – neue
+Gruppen, die der Nutzer selbst über das ⚙️-Panel anlegt, haben dort keine Einträge und werden
+daher nie automatisch vergeben (nur manuell zuweisbar). Atlas-Menüdaten (Rezepte + Wochen) in
+`app/atlas.py`.
 **Stolperfalle:** Der Aggregations-Key der Einkaufsliste MUSS auf dem kanonischen `name` bleiben,
 sonst brechen Summen/Häkchen beim Sprachwechsel. Importierte Rezepte tragen **keine Mengen**.
 
@@ -116,8 +148,11 @@ sonst brechen Summen/Häkchen beim Sprachwechsel. Importierte Rezepte tragen **k
 - `POST manual-items`, `DELETE manual-items/{id}`
 - `GET shopping-list` (nur Plan-Einträge **mit** Rezept; Freitext zählt nicht),
   `POST shopping-list/toggle`, `POST shopping-list/clear-checks`
-- `GET meta` (Aisles, `meals`, `days`, `food_groups` mit effektiven Richtwerten, `allergens`,
+- `GET meta` (Aisles, `meals`, `days`, `food_groups` = aktueller Häufigkeits-Katalog, `allergens`,
   `severities`, `reoffer_days`, `content_lang`)
+- `POST food-groups` (Body: Liste `[{key?, de, color, min, max}]` – ersetzt den Häufigkeits-
+  Katalog komplett, vergibt Keys für neue Gruppen via `slugify`, tagged danach alle Rezepte mit
+  `food_group_auto=1` neu)
 - `GET/POST settings` (`{key,value}`), `GET/POST day-notes` (`{day,text}`)
 - `GET/POST foods`, `PUT/DELETE foods/{id}`, `POST foods/{id}/reactions`, `DELETE reactions/{id}`
 - `POST import-atlas` (idempotent), `POST load-example-week` (`{week, clear}`)

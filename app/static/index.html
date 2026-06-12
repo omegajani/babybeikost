@@ -76,9 +76,18 @@
             </div>
             <div id="cell-recipe-list" class="cell-list"></div>
             <div class="or-divider"><span>oder</span></div>
-            <div class="field">
-              <label>Per Hand eintragen</label>
-              <input type="text" id="cell-label" placeholder="z. B. Reste von gestern" />
+            <div class="row">
+              <div class="field grow">
+                <label>Per Hand eintragen</label>
+                <input type="text" id="cell-label" placeholder="z. B. Reste von gestern" />
+              </div>
+              <div class="field" style="flex: 0 0 140px">
+                <label>Häufigkeits-Tag</label>
+                <div class="select-fg">
+                  <span class="fg-dot" id="cell-food-group-dot"></span>
+                  <select id="cell-food-group"></select>
+                </div>
+              </div>
             </div>
           </div>
           <div class="modal-foot">
@@ -170,7 +179,10 @@
         </div>
         <div class="field">
           <label>Lebensmittelgruppe</label>
-          <select id="r-food-group"></select>
+          <div class="row" style="align-items:center">
+            <select id="r-food-group" class="grow"></select>
+            <span id="r-food-group-hint" class="hint" style="margin:0"></span>
+          </div>
         </div>
         <div class="field">
           <label>Notizen</label>
@@ -289,8 +301,11 @@
       <div class="modal-body">
         <div class="settings-section first">
           <div class="settings-section-title">Häufigkeit pro Woche</div>
-          <p class="hint" style="margin:0 0 8px">Richtwerte für die Lebensmittelgruppen im Wochenplan (min–max).</p>
+          <p class="hint" style="margin:0 0 8px">Lebensmittelgruppen mit Richtwerten (min–max) je Woche. Rezepte werden
+            anhand ihrer Zutaten automatisch passend getaggt; eigene Gruppen, Farben und Ziele lassen sich hier
+            anpassen.</p>
           <div id="freq-settings"></div>
+          <button class="btn ghost small-btn" id="btn-add-foodgroup" style="margin-top:8px">+ Gruppe</button>
         </div>
 
         <div class="settings-section">

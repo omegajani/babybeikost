@@ -176,10 +176,41 @@ function renderCellList() {
 function fillFoodGroupSelect() {
   const sel = $("#r-food-group");
   sel.innerHTML = "";
+  const auto = el("option"); auto.value = "__auto__"; auto.textContent = "Automatisch"; sel.appendChild(auto);
   const none = el("option"); none.value = ""; none.textContent = "—"; sel.appendChild(none);
   FOOD_GROUPS.forEach((g) => {
     const o = el("option"); o.value = g.key; o.textContent = g.de; sel.appendChild(o);
   });
+  fillCellFoodGroupSelect();
+}
+
+// Häufigkeits-Tag-Auswahl für Freitext-Plan-Einträge (kein "Automatisch").
+function fillCellFoodGroupSelect() {
+  const sel = $("#cell-food-group");
+  if (!sel) return;
+  sel.innerHTML = "";
+  const none = el("option"); none.value = ""; none.textContent = "—"; sel.appendChild(none);
+  FOOD_GROUPS.forEach((g) => {
+    const o = el("option"); o.value = g.key; o.textContent = g.de; o.style.color = g.color; sel.appendChild(o);
+  });
+  updateCellFoodGroupDot();
+}
+
+// Färbt den Punkt vor dem Häufigkeits-Tag-Dropdown passend zur gewählten Gruppe.
+function updateCellFoodGroupDot() {
+  const sel = $("#cell-food-group");
+  const dot = $("#cell-food-group-dot");
+  if (!sel || !dot) return;
+  const g = fg(sel.value);
+  dot.style.setProperty("--fg", g ? g.color : "var(--line)");
+}
+
+// Shows what "Automatisch" currently resolves to (e.g. "→ Gemüse") next to the select.
+function updateFoodGroupHint(recipe) {
+  const hint = $("#r-food-group-hint");
+  if ($("#r-food-group").value !== "__auto__") { hint.textContent = ""; return; }
+  const g = recipe ? fg(recipe.food_group) : null;
+  hint.textContent = recipe ? (g ? `→ ${fgLabel(g)}` : "→ –") : "";
 }
 
 // ---------------- Recipe modal ----------------
@@ -188,7 +219,8 @@ function openModal(recipe) {
   $("#modal-title").textContent = recipe ? "Rezept bearbeiten" : "Neues Rezept";
   $("#r-name").value = recipe ? tName(recipe) : "";
   $("#r-category").value = recipe ? recipe.category : "Mittag";
-  $("#r-food-group").value = recipe ? (recipe.food_group || "") : "";
+  $("#r-food-group").value = (recipe && !recipe.food_group_auto) ? (recipe.food_group || "") : "__auto__";
+  updateFoodGroupHint(recipe);
   $("#r-servings").value = recipe ? recipe.servings : 1;
   $("#r-notes").value = recipe ? tNotes(recipe) : "";
   $("#r-instructions").value = recipe ? tInstr(recipe) : "";
@@ -235,7 +267,8 @@ async function saveRecipe() {
     name: $("#r-name").value.trim(),
     name_de: "",
     category: $("#r-category").value,
-    food_group: $("#r-food-group").value,
+    food_group: $("#r-food-group").value === "__auto__" ? "" : $("#r-food-group").value,
+    food_group_auto: $("#r-food-group").value === "__auto__",
     servings: parseFloat($("#r-servings").value) || 1,
     notes: $("#r-notes").value.trim(),
     notes_de: "",
@@ -271,6 +304,7 @@ async function deleteRecipe() {
 
 $("#btn-new-recipe").addEventListener("click", () => openModal(null));
 $("#btn-add-ing").addEventListener("click", () => addIngRow());
+$("#r-food-group").addEventListener("change", () => updateFoodGroupHint(editingId ? RECIPES.find((r) => r.id === editingId) : null));
 $("#btn-save-recipe").addEventListener("click", saveRecipe);
 $("#btn-delete-recipe").addEventListener("click", deleteRecipe);
 $("#modal-close").addEventListener("click", closeModal);
@@ -420,6 +454,8 @@ function openSlot(dayKey, mealObj, entry) {
   slotCtx = { day: dayKey, meal: mealObj.key, entry };
   $("#cell-search").value = "";
   $("#cell-label").value = (entry && entry.manual) ? (entry.name || "") : "";
+  $("#cell-food-group").value = (entry && entry.manual) ? (entry.food_group || "") : "";
+  updateCellFoodGroupDot();
   $("#cell-portions").value = (entry && entry.portions) ? entry.portions : 1;
   renderCellList();
   $("#cell-picker-title").textContent = `${mealLabel(mealObj)} · ${dayLabel(DAYS[currentDay], false)}`;
@@ -435,6 +471,7 @@ async function setSlot(body) {
 }
 
 $("#cell-search").addEventListener("input", renderCellList);
+$("#cell-food-group").addEventListener("change", updateCellFoodGroupDot);
 $("#cell-picker-close").addEventListener("click", closeSlot);
 $("#cell-picker-cancel").addEventListener("click", closeSlot);
 $("#cell-picker").addEventListener("click", (e) => { if (e.target.id === "cell-picker") closeSlot(); });
@@ -443,8 +480,9 @@ $("#cell-picker-add").addEventListener("click", async () => {
   if (!slotCtx) return;
   const label = $("#cell-label").value.trim();
   const portions = parseFloat($("#cell-portions").value) || 1;
+  const food_group = $("#cell-food-group").value;
   if (!label) { toast("Rezept antippen oder per Hand eintragen"); return; }
-  await setSlot({ day: slotCtx.day, meal: slotCtx.meal, portions, label });
+  await setSlot({ day: slotCtx.day, meal: slotCtx.meal, portions, label, food_group });
 });
 $("#cell-picker-delete").addEventListener("click", async () => {
   if (!slotCtx) return;
@@ -740,49 +778,63 @@ $("#btn-add-reaction").addEventListener("click", async () => {
 });
 
 // ---------------- Settings ----------------
+function addFreqRow(g) {
+  const row = el("div", "freq-set-row");
+  row.dataset.key = g ? g.key : "";
+  const color = el("input", "freq-color"); color.type = "color";
+  color.value = g ? g.color : "#9b8bd6"; color.dataset.k = "color";
+  const label = el("input", "freq-set-label-input"); label.type = "text"; label.placeholder = "Name";
+  label.value = g ? g.de : ""; label.dataset.k = "label";
+  const min = el("input"); min.type = "number"; min.min = "0"; min.step = "1"; min.value = g ? g.min : 0; min.dataset.k = "min";
+  const dash = el("span", "freq-dash", "–");
+  const max = el("input"); max.type = "number"; max.min = "0"; max.step = "1"; max.value = g ? g.max : 0; max.dataset.k = "max";
+  const del = el("button", "icon-btn freq-del", "✕");
+  del.type = "button";
+  del.addEventListener("click", () => row.remove());
+  row.append(color, label, min, dash, max, del);
+  $("#freq-settings").appendChild(row);
+  return row;
+}
+
 function openSettings() {
   const wrap = $("#freq-settings");
   wrap.innerHTML = "";
-  FOOD_GROUPS.forEach((g) => {
-    const row = el("div", "freq-set-row");
-    row.dataset.key = g.key;
-    row.innerHTML = `<span class="freq-dot" style="--fg:${g.color}"></span>
-      <span class="freq-set-label">${esc(LANG === "de" ? g.de : g.it)}</span>`;
-    const min = el("input"); min.type = "number"; min.min = "0"; min.step = "1"; min.value = g.min; min.dataset.k = "min";
-    const dash = el("span", "freq-dash", "–");
-    const max = el("input"); max.type = "number"; max.min = "0"; max.step = "1"; max.value = g.max; max.dataset.k = "max";
-    row.append(min, dash, max);
-    wrap.appendChild(row);
-  });
+  FOOD_GROUPS.forEach((g) => addFreqRow(g));
   $("#set-reoffer").value = REOFFER_DAYS;
   $("#settings-modal").classList.add("open");
 }
 function closeSettings() { $("#settings-modal").classList.remove("open"); }
+$("#btn-add-foodgroup").addEventListener("click", () => addFreqRow(null));
 
 async function reloadMeta() {
   const meta = await api("meta");
   FOOD_GROUPS = meta.food_groups || FOOD_GROUPS;
   REOFFER_DAYS = meta.reoffer_days ?? REOFFER_DAYS;
+  fillFoodGroupSelect();
   const active = document.querySelector(".view.active");
   if (active && active.id === "view-plan") renderDay();
   if (active && active.id === "view-allergens") loadFoods();
 }
 
 async function saveSettings() {
-  const targets = {};
-  [...$("#freq-settings").children].forEach((row) => {
-    const get = (k) => parseInt(row.querySelector(`[data-k="${k}"]`).value);
-    const mn = get("min"), mx = get("max");
-    targets[row.dataset.key] = {
+  const groups = [...$("#freq-settings").children].map((row) => {
+    const get = (k) => row.querySelector(`[data-k="${k}"]`).value;
+    const mn = parseInt(get("min")), mx = parseInt(get("max"));
+    return {
+      key: row.dataset.key || "",
+      de: get("label").trim(),
+      color: get("color"),
       min: Number.isNaN(mn) ? 0 : Math.max(0, mn),
       max: Number.isNaN(mx) ? 0 : Math.max(0, mx),
     };
-  });
+  }).filter((g) => g.de);
+  if (!groups.length) { toast("Mindestens eine Gruppe nötig"); return; }
   const reoffer = Math.max(1, parseInt($("#set-reoffer").value) || REOFFER_DAYS);
   try {
-    await api("settings", { method: "POST", body: JSON.stringify({ key: "freq_targets", value: JSON.stringify(targets) }) });
+    await api("food-groups", { method: "POST", body: JSON.stringify(groups) });
     await api("settings", { method: "POST", body: JSON.stringify({ key: "reoffer_days", value: String(reoffer) }) });
     await reloadMeta();
+    await loadRecipes();
     closeSettings();
     toast("Einstellungen gespeichert ✓");
   } catch (e) { toast("Fehler: " + e.message); }

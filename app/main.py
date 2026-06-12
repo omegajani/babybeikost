@@ -6,6 +6,7 @@ standalone (DB then lands next to this file).
 """
 import json
 import os
+import re
 import sqlite3
 from contextlib import closing
 from datetime import date
@@ -53,13 +54,61 @@ DAYS = [
 ]
 
 # Food groups with weekly frequency targets (from the atlas reference panel).
+# This is the default/seed list; users can add, rename, recolor, retarget or
+# remove groups via the settings UI (stored as JSON in settings["food_groups_custom"]).
 FOOD_GROUPS = [
     {"key": "carne", "it": "Carne", "de": "Fleisch", "color": "#e8746b", "min": 0, "max": 3},
     {"key": "pesce", "it": "Pesce", "de": "Fisch", "color": "#56b6c2", "min": 3, "max": 4},
     {"key": "uova", "it": "Uova", "de": "Eier", "color": "#f2b84b", "min": 1, "max": 2},
     {"key": "legumi", "it": "Legumi", "de": "Hülsenfrüchte", "color": "#7fae5a", "min": 4, "max": 5},
-    {"key": "formaggi", "it": "Formaggi", "de": "Käse", "color": "#9b8bd6", "min": 0, "max": 2},
+    {"key": "formaggi", "it": "Formaggi", "de": "Milchprodukte", "color": "#9b8bd6", "min": 0, "max": 2},
+    {"key": "verdura", "it": "Verdura", "de": "Gemüse", "color": "#4f9d6e", "min": 5, "max": 7},
+    {"key": "frutta", "it": "Frutta", "de": "Obst", "color": "#f2924b", "min": 3, "max": 7},
+    {"key": "cereali", "it": "Cereali", "de": "Getreide", "color": "#cf9b4e", "min": 5, "max": 7},
 ]
+
+# Keyword lookup for automatic food-group assignment: each key maps to a set of
+# whole-word ingredient/recipe-name tokens (lowercase, German) that indicate the
+# recipe belongs to that group. Used by `compute_food_group()`.
+FOOD_GROUP_KEYWORDS: dict[str, set[str]] = {
+    "carne": {
+        "hähnchen", "hähnchenbrust", "hühnchen", "huhn", "pute", "putenbrust",
+        "rind", "rindfleisch", "kalb", "kalbfleisch", "schwein", "hackfleisch",
+        "hack", "leber", "lamm", "fleisch", "schinken", "pute brust",
+    },
+    "pesce": {
+        "lachs", "fisch", "fischfilet", "kabeljau", "seelachs", "forelle",
+        "thunfisch", "scholle", "garnelen", "garnele", "schellfisch",
+    },
+    "uova": {"ei", "eier", "eigelb", "eiweiß", "eiklar"},
+    "legumi": {
+        "linsen", "kichererbsen", "kichererbse", "bohnen", "kidneybohnen",
+        "erbsen", "sojabohnen", "tofu", "weiße bohnen", "schwarze bohnen",
+    },
+    "formaggi": {
+        "käse", "joghurt", "quark", "frischkäse", "mozzarella", "parmesan",
+        "ricotta", "milch", "vollmilch", "sahne", "butter", "grana", "hüttenkäse",
+        "ziegenkäse", "naturjoghurt",
+    },
+    "verdura": {
+        "karotte", "karotten", "zucchini", "kürbis", "brokkoli", "blumenkohl",
+        "spinat", "kartoffel", "kartoffeln", "süßkartoffel", "tomate", "tomaten",
+        "paprika", "pastinake", "fenchel", "lauch", "zwiebel", "sellerie",
+        "aubergine", "mais", "gurke", "rote bete", "mangold", "rosenkohl",
+        "gemüsebrühe", "gemüse",
+    },
+    "frutta": {
+        "apfel", "äpfel", "banane", "birne", "birnen", "beeren", "blaubeeren",
+        "heidelbeeren", "erdbeeren", "himbeeren", "mango", "pfirsich",
+        "aprikose", "orange", "pflaume", "kiwi", "papaya", "traube", "trauben",
+        "ananas", "avocado", "melone",
+    },
+    "cereali": {
+        "reis", "vollkornreis", "hirse", "haferflocken", "hafer", "quinoa",
+        "couscous", "nudeln", "pasta", "brot", "mehl", "vollkornmehl", "grieß",
+        "polenta", "maisgrieß", "dinkel", "vollkorn", "cracker", "zwieback",
+    },
+}
 
 # Allergen tracker -----------------------------------------------------------
 # Major allergens commonly introduced during weaning (bilingual quick-pick).
@@ -228,13 +277,17 @@ def init_db() -> None:
         _ensure_column(conn, "recipes", "name_de", "TEXT DEFAULT ''")
         _ensure_column(conn, "recipes", "notes_de", "TEXT DEFAULT ''")
         _ensure_column(conn, "recipes", "food_group", "TEXT DEFAULT ''")
+        _ensure_column(conn, "recipes", "food_group_auto", "INTEGER DEFAULT 1")
         _ensure_column(conn, "recipes", "instructions", "TEXT DEFAULT ''")
         _ensure_column(conn, "recipes", "instructions_de", "TEXT DEFAULT ''")
         _ensure_column(conn, "ingredients", "name_de", "TEXT DEFAULT ''")
         _ensure_column(conn, "plan", "meal", "TEXT DEFAULT ''")
         _migrate_plan_table(conn)
+        _ensure_column(conn, "plan", "food_group", "TEXT DEFAULT ''")
         _consolidate_to_de(conn)
     seed_if_empty()
+    with closing(connect()) as conn, conn:
+        _auto_assign_food_groups(conn)
 
 
 def seed_if_empty() -> None:
@@ -312,6 +365,7 @@ class RecipeIn(BaseModel):
     instructions: str = ""
     instructions_de: str = ""
     food_group: str = ""
+    food_group_auto: bool = True
     ingredients: list[IngredientIn] = []
 
 
@@ -321,6 +375,7 @@ class PlanIn(BaseModel):
     day: str = ""
     meal: str = ""
     label: str = ""
+    food_group: str = ""
 
 
 class SettingIn(BaseModel):
@@ -384,6 +439,7 @@ def recipe_to_dict(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
         "instructions": row["instructions"] or "",
         "instructions_de": row["instructions_de"] or "",
         "food_group": row["food_group"] or "",
+        "food_group_auto": bool(row["food_group_auto"]),
         "ingredients": [dict(i) for i in ings],
     }
 
@@ -407,11 +463,15 @@ def create_recipe(data: RecipeIn):
     if not data.name.strip():
         raise HTTPException(400, "Name fehlt")
     with closing(connect()) as conn, conn:
+        food_group = data.food_group
+        if data.food_group_auto:
+            food_group = compute_food_group(conn, data.name, [i.model_dump() for i in data.ingredients])
         cur = conn.execute(
             "INSERT INTO recipes (name, name_de, category, servings, notes, notes_de, "
-            "instructions, instructions_de, food_group) VALUES (?,?,?,?,?,?,?,?,?)",
+            "instructions, instructions_de, food_group, food_group_auto) VALUES (?,?,?,?,?,?,?,?,?,?)",
             (data.name.strip(), data.name_de.strip(), data.category, max(data.servings, 0.1),
-             data.notes, data.notes_de, data.instructions, data.instructions_de, data.food_group),
+             data.notes, data.notes_de, data.instructions, data.instructions_de, food_group,
+             1 if data.food_group_auto else 0),
         )
         rid = cur.lastrowid
         _save_ingredients(conn, rid, data.ingredients)
@@ -424,11 +484,15 @@ def update_recipe(rid: int, data: RecipeIn):
         exists = conn.execute("SELECT id FROM recipes WHERE id=?", (rid,)).fetchone()
         if not exists:
             raise HTTPException(404, "Rezept nicht gefunden")
+        food_group = data.food_group
+        if data.food_group_auto:
+            food_group = compute_food_group(conn, data.name, [i.model_dump() for i in data.ingredients])
         conn.execute(
             "UPDATE recipes SET name=?, name_de=?, category=?, servings=?, notes=?, "
-            "notes_de=?, instructions=?, instructions_de=?, food_group=? WHERE id=?",
+            "notes_de=?, instructions=?, instructions_de=?, food_group=?, food_group_auto=? WHERE id=?",
             (data.name.strip(), data.name_de.strip(), data.category, max(data.servings, 0.1),
-             data.notes, data.notes_de, data.instructions, data.instructions_de, data.food_group, rid),
+             data.notes, data.notes_de, data.instructions, data.instructions_de, food_group,
+             1 if data.food_group_auto else 0, rid),
         )
         conn.execute("DELETE FROM ingredients WHERE recipe_id=?", (rid,))
         _save_ingredients(conn, rid, data.ingredients)
@@ -461,7 +525,7 @@ def _save_ingredients(conn, rid, ingredients):
 def get_plan():
     with closing(connect()) as conn:
         rows = conn.execute(
-            "SELECT p.id, p.recipe_id, p.portions, p.day, p.meal, p.label, "
+            "SELECT p.id, p.recipe_id, p.portions, p.day, p.meal, p.label, p.food_group AS plan_food_group, "
             "r.name, r.name_de, r.category, r.servings, r.food_group "
             "FROM plan p LEFT JOIN recipes r ON r.id = p.recipe_id ORDER BY p.id"
         ).fetchall()
@@ -473,7 +537,9 @@ def get_plan():
                 # Free-text entry: show its label, no recipe metadata.
                 d["name"] = d["label"] or ""
                 d["name_de"] = ""
-                d["food_group"] = ""
+                d["food_group"] = d.pop("plan_food_group") or ""
+            else:
+                d.pop("plan_food_group")
             out.append(d)
         return out
 
@@ -507,8 +573,8 @@ def set_plan_slot(data: PlanIn):
             )
         elif label:
             conn.execute(
-                "INSERT INTO plan (recipe_id, portions, day, meal, label) VALUES (NULL,?,?,?,?)",
-                (max(data.portions, 0.1), data.day, data.meal, label),
+                "INSERT INTO plan (recipe_id, portions, day, meal, label, food_group) VALUES (NULL,?,?,?,?,?)",
+                (max(data.portions, 0.1), data.day, data.meal, label, (data.food_group or "").strip()),
             )
         # else: slot left empty (cleared)
     return {"ok": True}
@@ -653,7 +719,22 @@ def get_reoffer_days(conn) -> int:
 
 
 def effective_food_groups(conn) -> list:
-    """FOOD_GROUPS with per-group min/max overrides from settings (JSON 'freq_targets')."""
+    """The food-group catalog (key, label, color, min/max) used for tags & frequency bar.
+
+    If the user has customized the catalog (added/renamed/removed groups, or
+    changed targets) via settings, that list (settings["food_groups_custom"]) is
+    authoritative. Otherwise falls back to FOOD_GROUPS, with any legacy
+    per-group min/max overrides from settings["freq_targets"] applied.
+    """
+    raw = get_setting(conn, "food_groups_custom")
+    if raw:
+        try:
+            data = json.loads(raw)
+            if isinstance(data, list) and data:
+                return data
+        except (ValueError, TypeError):
+            pass
+
     overrides = {}
     raw = get_setting(conn, "freq_targets")
     if raw:
@@ -674,6 +755,104 @@ def effective_food_groups(conn) -> list:
                         pass
         out.append(gg)
     return out
+
+
+def slugify(text: str, existing: set) -> str:
+    """Turn a German label into a stable, unique lowercase key for a new food group."""
+    repl = {"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"}
+    s = text.strip().lower()
+    for a, b in repl.items():
+        s = s.replace(a, b)
+    s = re.sub(r"[^a-z0-9]+", "_", s).strip("_") or "gruppe"
+    base, i, key = s, 2, s
+    while key in existing:
+        key = f"{base}_{i}"
+        i += 1
+    return key
+
+
+def save_food_groups(conn, groups: list) -> list:
+    """Validate and persist a full custom food-group catalog, assigning keys to new entries."""
+    existing_keys = set()
+    out = []
+    for g in groups:
+        if not isinstance(g, dict):
+            continue
+        label = str(g.get("de", "")).strip()
+        if not label:
+            continue
+        key = str(g.get("key", "")).strip().lower()
+        if not key or key in existing_keys:
+            key = slugify(label, existing_keys)
+        existing_keys.add(key)
+        try:
+            mn = max(0, int(g.get("min", 0)))
+        except (TypeError, ValueError):
+            mn = 0
+        try:
+            mx = max(0, int(g.get("max", 0)))
+        except (TypeError, ValueError):
+            mx = 0
+        color = str(g.get("color", "")).strip() or "#9b8bd6"
+        out.append({"key": key, "it": label, "de": label, "color": color, "min": mn, "max": mx})
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES ('food_groups_custom', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (json.dumps(out),),
+    )
+    return out
+
+
+def compute_food_group(conn, name: str, ingredients: list) -> str:
+    """Guess the most fitting food-group key from the recipe name & ingredient names.
+
+    Tokenizes the recipe name and every ingredient name into lowercase words and
+    matches them against `FOOD_GROUP_KEYWORDS`. The group with the most matching
+    tokens wins; ties are broken by the display order of `effective_food_groups`.
+    Only groups that still exist in the current catalog are considered, so
+    deleting a group also retires it from auto-assignment. Returns "" if nothing
+    matches (the recipe then stays untagged until set manually).
+    """
+    texts = [name or ""] + [str(i.get("name") or i.get("name_de") or "") for i in ingredients]
+    tokens = set()
+    for t in texts:
+        tokens.update(re.findall(r"[a-zäöüß]+", t.lower()))
+
+    groups = effective_food_groups(conn)
+    valid_keys = [g["key"] for g in groups]
+    counts = {}
+    for key, kws in FOOD_GROUP_KEYWORDS.items():
+        if key not in valid_keys:
+            continue
+        n = len(tokens & kws)
+        if n:
+            counts[key] = n
+    if not counts:
+        return ""
+    order = {k: i for i, k in enumerate(valid_keys)}
+    return max(counts, key=lambda k: (counts[k], -order.get(k, 999)))
+
+
+def _auto_assign_food_groups(conn) -> None:
+    """One-time: compute `food_group` for every recipe still set to automatic.
+
+    Runs once (guarded by settings flag) so the broader keyword-based tagging is
+    applied to existing recipes (incl. the atlas seed data) without overwriting
+    any group a user may already have picked manually.
+    """
+    if get_setting(conn, "food_groups_auto_assigned") == "1":
+        return
+    recipes = conn.execute("SELECT id, name, food_group_auto FROM recipes").fetchall()
+    for r in recipes:
+        if not r["food_group_auto"]:
+            continue
+        ings = conn.execute("SELECT name FROM ingredients WHERE recipe_id=?", (r["id"],)).fetchall()
+        fg = compute_food_group(conn, r["name"], [dict(i) for i in ings])
+        conn.execute("UPDATE recipes SET food_group=? WHERE id=?", (fg, r["id"]))
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES ('food_groups_auto_assigned','1') "
+        "ON CONFLICT(key) DO UPDATE SET value='1'"
+    )
 
 
 @app.get("/api/meta")
@@ -715,6 +894,22 @@ def set_setting(data: SettingIn):
             (data.key, data.value),
         )
     return {"ok": True}
+
+
+@app.post("/api/food-groups")
+def set_food_groups(groups: list[dict]):
+    """Replace the food-group catalog (label/color/min/max), then re-tag every
+    recipe still on automatic assignment against the new catalog."""
+    with closing(connect()) as conn, conn:
+        out = save_food_groups(conn, groups)
+        recipes = conn.execute("SELECT id, name, food_group_auto FROM recipes").fetchall()
+        for r in recipes:
+            if not r["food_group_auto"]:
+                continue
+            ings = conn.execute("SELECT name FROM ingredients WHERE recipe_id=?", (r["id"],)).fetchall()
+            fg = compute_food_group(conn, r["name"], [dict(i) for i in ings])
+            conn.execute("UPDATE recipes SET food_group=? WHERE id=?", (fg, r["id"]))
+    return {"food_groups": out}
 
 
 # --------------------------------------------------------------------------
@@ -772,6 +967,8 @@ def _import_atlas(conn) -> int:
                 "VALUES (?,?,?,?,?,?,?)",
                 (rid, ing["name"], ing["name_de"], None, "", ing["aisle"], pos),
             )
+        fg = compute_food_group(conn, rec["name"], rec["ingredients"]) or rec["food_group"]
+        conn.execute("UPDATE recipes SET food_group=? WHERE id=?", (fg, rid))
         existing.add(rec["name"])
         added += 1
     return added
